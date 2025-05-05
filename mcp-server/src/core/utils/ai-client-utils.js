@@ -23,7 +23,7 @@ const DEFAULT_MODEL_CONFIG = {
  * @returns {Anthropic} Anthropic client instance
  * @throws {Error} If API key is missing
  */
-export function getAnthropicClientForMCP(session, log = console) {
+function getAnthropicClientForMCP(session, log = console) {
 	try {
 		// Extract API key from session.env or fall back to environment variables
 		const apiKey =
@@ -55,7 +55,7 @@ export function getAnthropicClientForMCP(session, log = console) {
  * @returns {OpenAI} OpenAI client configured for Perplexity API
  * @throws {Error} If API key is missing or OpenAI package can't be imported
  */
-export async function getPerplexityClientForMCP(session, log = console) {
+async function getPerplexityClientForMCP(session, log = console) {
 	try {
 		// Extract API key from session.env or fall back to environment variables
 		const apiKey =
@@ -87,7 +87,7 @@ export async function getPerplexityClientForMCP(session, log = console) {
  * @param {Object} [defaults] - Default model configuration to use if not in session
  * @returns {Object} Model configuration with model, maxTokens, and temperature
  */
-export function getModelConfig(session, defaults = DEFAULT_MODEL_CONFIG) {
+function getModelConfig(session, defaults = DEFAULT_MODEL_CONFIG) {
 	// Get values from session or fall back to defaults
 	return {
 		model: session?.env?.MODEL || defaults.model,
@@ -106,7 +106,7 @@ export function getModelConfig(session, defaults = DEFAULT_MODEL_CONFIG) {
  * @returns {Promise<Object>} Selected model info with type and client
  * @throws {Error} If no AI models are available
  */
-export async function getBestAvailableAIModel(
+async function getBestAvailableAIModel(
 	session,
 	options = {},
 	log = console
@@ -185,7 +185,7 @@ export async function getBestAvailableAIModel(
  * @param {Error} error - The error from Claude API
  * @returns {string} User-friendly error message
  */
-export function handleClaudeError(error) {
+function handleClaudeError(error) {
 	// Check if it's a structured error response
 	if (error.type === 'error' && error.error) {
 		switch (error.error.type) {
@@ -219,7 +219,7 @@ export function handleClaudeError(error) {
  * @param {string} [prdPath=\'N/A\'] - The path to the PRD file (optional).
  * @returns {Object} The system prompt object { systemPrompt, userPrompt }
  */
-export function _generateParsePRDPrompt(prdContent, numTasks, prdPath = 'N/A') {
+function _generateParsePRDPrompt(prdContent, numTasks, prdPath = 'N/A') {
 	const systemPrompt = `You are an AI assistant tasked with breaking down a Product Requirements Document (PRD) into a set of sequential development tasks. Your goal is to create exactly <num_tasks>${numTasks}</num_tasks> well-structured, actionable development tasks based on the PRD provided.
 
 First, carefully read and analyze the attached PRD below in the user message.
@@ -302,7 +302,7 @@ Remember to provide comprehensive task details that are LLM-friendly, consider d
  * @param {string} completionText - The raw text response from the LLM.
  * @returns {Object} The parsed task data object { tasks: [], metadata: {} } or null if parsing fails.
  */
-export function parseTasksFromCompletion(completionText) {
+function parseTasksFromCompletion(completionText) {
 	try {
 		// Find the start and end of the JSON block
 		const jsonStart = completionText.indexOf('{');
@@ -352,7 +352,7 @@ export function parseTasksFromCompletion(completionText) {
  * @param {number} [options.newTaskId] - The potential ID for the new task.
  * @returns {{systemPrompt: string, userPrompt: string}}
  */
-export function _buildAddTaskPrompt(userPrompt, contextTasks = [], { newTaskId } = {}) {
+function _buildAddTaskPrompt(userPrompt, contextTasks = [], { newTaskId } = {}) {
 	const systemPrompt = `You are an AI assistant helping to structure a new development task based on a user's prompt. Your goal is to create a single, well-defined task object in JSON format.
 
 Analyze the user's request and the context of existing tasks (if provided) to create a task object with the following fields:
@@ -396,7 +396,7 @@ Example Output Format:
  * @param {string} completionText - The raw text response from the LLM.
  * @returns {Object|null} The parsed task data object or null if parsing fails.
  */
-export function parseTaskJsonResponse(completionText) {
+function parseTaskJsonResponse(completionText) {
   try {
     // Find the start and end of the JSON block
     const jsonStart = completionText.indexOf('{');
@@ -436,7 +436,7 @@ export function parseTaskJsonResponse(completionText) {
  * @param {boolean} useResearch - Hint whether research capabilities might be useful.
  * @returns {string} The formatted prompt for the AI.
  */
-export function generateComplexityAnalysisPrompt(tasksToAnalyze, thresholdScore = 8, useResearch = false) {
+function generateComplexityAnalysisPrompt(tasksToAnalyze, thresholdScore = 8, useResearch = false) {
     const taskDescriptions = tasksToAnalyze.map(task => (
         `<task id="${task.id}" title="${task.title}" priority="${task.priority || 'N/A'}" dependencies="${task.dependencies?.join(', ') || 'none'}">
 <description>${task.description || 'No description provided.'}</description>
@@ -477,7 +477,7 @@ ${taskDescriptions}`;
  * @param {string} completionText - The raw text response from the LLM.
  * @returns {Array|null} An array of complexity analysis objects or null if parsing fails.
  */
-export function parseComplexityAnalysis(completionText) {
+function parseComplexityAnalysis(completionText) {
   try {
     // Find the start and end of the JSON array
     const jsonStart = completionText.indexOf('[');
