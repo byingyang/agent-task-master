@@ -8,7 +8,6 @@
 import { listTasksDirect } from './direct-functions/list-tasks.js';
 import { getCacheStatsDirect } from './direct-functions/cache-stats.js';
 import { updateTasksDirect } from './direct-functions/update-tasks.js';
-import { updateTaskByIdDirect } from './direct-functions/update-task-by-id.js';
 import { updateSubtaskByIdDirect } from './direct-functions/update-subtask-by-id.js';
 import { generateTaskFilesDirect } from './direct-functions/generate-task-files.js';
 import { setTaskStatusDirect } from './direct-functions/set-task-status.js';
@@ -48,7 +47,6 @@ export const directFunctions = new Map([
 	['getCacheStatsDirect', getCacheStatsDirect],
 	['saveTasksAndGenerateFilesDirect', saveTasksAndGenerateFilesDirect],
 	['updateTasksDirect', updateTasksDirect],
-	['updateTaskByIdDirect', updateTaskByIdDirect],
 	['updateSubtaskByIdDirect', updateSubtaskByIdDirect],
 	['generateTaskFilesDirect', generateTaskFilesDirect],
 	['setTaskStatusDirect', setTaskStatusDirect],
@@ -74,7 +72,6 @@ export {
 	listTasksDirect,
 	getCacheStatsDirect,
 	updateTasksDirect,
-	updateTaskByIdDirect,
 	updateSubtaskByIdDirect,
 	generateTaskFilesDirect,
 	setTaskStatusDirect,

@@ -9,10 +9,14 @@ import {
 	createErrorResponse,
 	getProjectRootFromSession
 } from './utils.js';
-import { expandTaskDirect } from '../core/task-master-core.js';
-import { findTasksJsonPath } from '../core/utils/path-utils.js';
+import { saveSubtasksDirect } from '../core/task-master-core.js';
+import { findTasksJsonPath, readTasks } from '../core/utils/path-utils.js';
 import fs from 'fs';
 import path from 'path';
+import {
+	_generateExpandTaskPrompt,
+	parseSubtasksFromCompletion
+} from '../core/utils/ai-client-utils.js';
 
 /**
  * Register the expand-task tool with the MCP server
@@ -21,14 +25,14 @@ import path from 'path';
 export function registerExpandTaskTool(server) {
 	server.addTool({
 		name: 'expand_task',
-		description: 'Expand a task into subtasks for detailed implementation',
+		description: 'Expand a task into subtasks for detailed implementation using client-side LLM sampling.',
 		parameters: z.object({
 			id: z.string().describe('ID of task to expand'),
-			num: z.string().optional().describe('Number of subtasks to generate'),
+			num: z.string().optional().describe('Approximate number of subtasks to generate'),
 			research: z
 				.boolean()
 				.optional()
-				.describe('Use Perplexity AI for research-backed generation'),
+				.describe('Hint for client LLM to use research capabilities'),
 			prompt: z
 				.string()
 				.optional()
@@ -36,63 +40,96 @@ export function registerExpandTaskTool(server) {
 			file: z.string().optional().describe('Absolute path to the tasks file'),
 			projectRoot: z
 				.string()
-				.describe('The directory of the project. Must be an absolute path.'),
-			force: z.boolean().optional().describe('Force the expansion')
+				.optional()
+				.describe('The directory of the project. Must be an absolute path. If not provided, derived from session.'),
+			force: z.boolean().optional().describe('Force overwriting existing subtasks')
 		}),
-		execute: async (args, { log, session }) => {
+		execute: async (args, context) => {
+			const { log, session } = context;
 			try {
 				log.info(`Starting expand-task with args: ${JSON.stringify(args)}`);
 
-				// Get project root from args or session
 				const rootFolder =
 					args.projectRoot || getProjectRootFromSession(session, log);
-
-				// Ensure project root was determined
 				if (!rootFolder) {
-					return createErrorResponse(
-						'Could not determine project root. Please provide it explicitly or ensure your session contains valid root information.'
-					);
+					return createErrorResponse('Could not determine project root.');
 				}
 
-				log.info(`Project root resolved to: ${rootFolder}`);
-
-				// Resolve the path to tasks.json using the utility
 				let tasksJsonPath;
+				let existingTasksData;
+				let parentTask;
 				try {
 					tasksJsonPath = findTasksJsonPath(
 						{ projectRoot: rootFolder, file: args.file },
 						log
 					);
+					existingTasksData = readTasks(tasksJsonPath, log);
+					parentTask = existingTasksData.tasks.find(t => t.id === args.id);
+					if (!parentTask) {
+						throw new Error(`Task with ID ${args.id} not found.`);
+					}
+					if (!args.force && parentTask.subtasks && parentTask.subtasks.length > 0) {
+						return createErrorResponse(`Task ${args.id} already has subtasks. Use --force to overwrite.`);
+					}
 				} catch (error) {
-					log.error(`Error finding tasks.json: ${error.message}`);
+					log.error(`Error finding/reading tasks.json or parent task: ${error.message}`);
 					return createErrorResponse(
-						`Failed to find tasks.json: ${error.message}`
+						`Failed to find/read tasks.json or parent task ${args.id}: ${error.message}`
 					);
 				}
 
-				// Call direct function with only session in the context, not reportProgress
-				// Use the pattern recommended in the MCP guidelines
-				const result = await expandTaskDirect(
-					{
-						// Pass the explicitly resolved path
-						tasksJsonPath: tasksJsonPath,
-						// Pass other relevant args
-						id: args.id,
-						num: args.num,
-						research: args.research,
-						prompt: args.prompt,
-						force: args.force // Need to add force to parameters
-					},
-					log,
-					{ session }
-				); // Only pass session, NOT reportProgress
+				const { systemPrompt, userPrompt } = _generateExpandTaskPrompt(
+					parentTask,
+					args.num,
+					args.prompt,
+					args.research
+				);
+				if (!userPrompt) {
+					return createErrorResponse('Failed to generate prompt for expanding task.');
+				}
 
-				// Return the result
-				return handleApiResult(result, log, 'Error expanding task');
+				log.info(`Initiating client-side LLM sampling via context.sample for expand_task ID ${args.id}...`);
+				let completion;
+				try {
+					if (typeof context.sample !== 'function') {
+						throw new Error('FastMCP sampling function (context.sample) is not available.');
+					}
+					completion = await context.sample(userPrompt, { system: systemPrompt });
+				} catch (sampleError) {
+					log.error(`context.sample failed: ${sampleError.message}`);
+					return createErrorResponse(`Client-side sampling failed: ${sampleError.message}`);
+				}
+
+				const completionText = completion?.text;
+				if (!completionText) {
+					log.error('Received empty completion from context.sample.');
+					return createErrorResponse('Received empty completion from client LLM.');
+				}
+				log.info(`Received subtask completion for task ${args.id} from client LLM.`);
+
+				const newSubtasks = parseSubtasksFromCompletion(completionText);
+				if (!newSubtasks || !Array.isArray(newSubtasks)) {
+					log.error('Failed to parse valid subtasks array from LLM completion.');
+					return createErrorResponse('Failed to parse valid subtasks array from LLM completion.');
+				}
+				log.info(`Parsed ${newSubtasks.length} new subtasks for task ${args.id} from completion.`);
+
+				const saveArgs = {
+					tasksJsonPath,
+					projectRoot: rootFolder,
+					parentTaskId: args.id,
+					subtasks: newSubtasks,
+					force: args.force
+				};
+				const result = await saveSubtasksDirect(saveArgs, log);
+
+				return handleApiResult(result, log, `Error saving subtasks for task ${args.id}`);
 			} catch (error) {
-				log.error(`Error in expand task tool: ${error.message}`);
-				return createErrorResponse(error.message);
+				log.error(`Unhandled error in expand-task tool: ${error.message}`);
+				log.error(error.stack);
+				return createErrorResponse(`Internal server error during task expansion: ${error.message}`);
 			}
 		}
 	});
 }
+

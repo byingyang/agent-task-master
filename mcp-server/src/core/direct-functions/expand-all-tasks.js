@@ -33,6 +33,17 @@ import fs from 'fs';
  * @returns {Promise<{success: boolean, data?: Object, error?: {code: string, message: string}}>}
  */
 export async function expandAllTasksDirect(args, log, context = {}) {
+	// Corrected check for context.sample
+	if (!context || typeof context.sample !== 'function') {
+		const errorMessage = 'FastMCP sampling function (context.sample) is not available.';
+		log.error(errorMessage);
+		return {
+			success: false,
+			error: { code: 'SAMPLING_UNAVAILABLE', message: errorMessage },
+			fromCache: false
+		};
+	}
+
 	const { session } = context; // Session is needed for sampling
 	const { tasksJsonPath, num, research, prompt, force } = args;
 
@@ -94,12 +105,13 @@ export async function expandAllTasksDirect(args, log, context = {}) {
 					continue;
 				}
 
-				// 2. Call Sampling
+				// 2. Call Sampling (using context.sample)
 				log.info(`   Initiating sampling for task ${task.id}...`);
-				const completion = await session.llm.complete(subtaskPrompt);
-				const completionText = completion?.content;
+				// Use context.sample
+				const completion = await context.sample(subtaskPrompt);
+				const completionText = completion?.text; // Assuming response structure { text: '...' }
 				if (!completionText) {
-					log.warn(`Skipping task ${task.id}: Received empty completion from sampling.`);
+					log.warn(`Skipping task ${task.id}: Received empty completion text from sampling.`);
 					continue;
 				}
 

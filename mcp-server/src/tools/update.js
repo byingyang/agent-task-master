@@ -9,8 +9,12 @@ import {
 	createErrorResponse,
 	getProjectRootFromSession
 } from './utils.js';
-import { updateTasksDirect } from '../core/task-master-core.js';
-import { findTasksJsonPath } from '../core/utils/path-utils.js';
+import { saveUpdatedTasksDirect } from '../core/task-master-core.js';
+import { findTasksJsonPath, readTasks } from '../core/utils/path-utils.js';
+import {
+	_generateUpdateTasksPrompt,
+	parseUpdatedTasksFromCompletion
+} from '../core/utils/ai-client-utils.js';
 
 /**
  * Register the update tool with the MCP server
@@ -20,7 +24,7 @@ export function registerUpdateTool(server) {
 	server.addTool({
 		name: 'update',
 		description:
-			"Update multiple upcoming tasks (with ID >= 'from' ID) based on new context or changes provided in the prompt. Use 'update_task' instead for a single specific task or 'update_subtask' for subtasks.",
+			"Update multiple upcoming tasks (with ID >= 'from' ID) based on new context/changes provided in the prompt, using client-side LLM sampling.",
 		parameters: z.object({
 			from: z
 				.string()
@@ -33,66 +37,99 @@ export function registerUpdateTool(server) {
 			research: z
 				.boolean()
 				.optional()
-				.describe('Use Perplexity AI for research-backed updates'),
+				.describe('Hint for client LLM to use research capabilities'),
 			file: z.string().optional().describe('Absolute path to the tasks file'),
 			projectRoot: z
 				.string()
-				.describe('The directory of the project. Must be an absolute path.')
+				.optional()
+				.describe('The directory of the project. Must be an absolute path. If not provided, derived from session.')
 		}),
-		execute: async (args, { log, session }) => {
+		execute: async (args, context) => {
+			const { log, session } = context;
 			try {
 				log.info(`Updating tasks with args: ${JSON.stringify(args)}`);
 
-				// Get project root from args or session
 				const rootFolder =
 					args.projectRoot || getProjectRootFromSession(session, log);
-
-				// Ensure project root was determined
 				if (!rootFolder) {
-					return createErrorResponse(
-						'Could not determine project root. Please provide it explicitly or ensure your session contains valid root information.'
-					);
+					return createErrorResponse('Could not determine project root.');
 				}
 
-				// Resolve the path to tasks.json
 				let tasksJsonPath;
+				let existingTasksData;
 				try {
 					tasksJsonPath = findTasksJsonPath(
 						{ projectRoot: rootFolder, file: args.file },
 						log
 					);
+					existingTasksData = readTasks(tasksJsonPath, log);
 				} catch (error) {
-					log.error(`Error finding tasks.json: ${error.message}`);
+					log.error(`Error finding or reading tasks.json: ${error.message}`);
 					return createErrorResponse(
-						`Failed to find tasks.json: ${error.message}`
+						`Failed to find or read tasks.json: ${error.message}`
 					);
 				}
 
-				const result = await updateTasksDirect(
-					{
-						tasksJsonPath: tasksJsonPath,
-						from: args.from,
-						prompt: args.prompt,
-						research: args.research
-					},
-					log,
-					{ session }
+				const fromIdNum = parseFloat(args.from);
+				const tasksToUpdateContext = existingTasksData.tasks.filter(task => {
+					const taskIdNum = parseFloat(task.id);
+					return !isNaN(taskIdNum) && taskIdNum >= fromIdNum && task.status !== 'done';
+				});
+
+				if (tasksToUpdateContext.length === 0) {
+					return handleApiResult({ success: true, data: { message: `No tasks found with ID >= ${args.from} to update.` } }, log);
+				}
+
+				log.info(`Found ${tasksToUpdateContext.length} tasks potentially affected by the update prompt.`);
+
+				const { systemPrompt, userPrompt } = _generateUpdateTasksPrompt(
+					args.prompt,
+					tasksToUpdateContext,
+					args.from,
+					args.research
 				);
-
-				if (result.success) {
-					log.info(
-						`Successfully updated tasks from ID ${args.from}: ${result.data.message}`
-					);
-				} else {
-					log.error(
-						`Failed to update tasks: ${result.error?.message || 'Unknown error'}`
-					);
+				if (!userPrompt) {
+					return createErrorResponse('Failed to generate prompt for updating tasks.');
 				}
 
-				return handleApiResult(result, log, 'Error updating tasks');
+				log.info(`Initiating client-side LLM sampling via context.sample for updating tasks from ID ${args.from}...`);
+				let completion;
+				try {
+					if (typeof context.sample !== 'function') {
+						throw new Error('FastMCP sampling function (context.sample) is not available.');
+					}
+					completion = await context.sample(userPrompt, { system: systemPrompt });
+				} catch (sampleError) {
+					log.error(`context.sample failed: ${sampleError.message}`);
+					return createErrorResponse(`Client-side sampling failed: ${sampleError.message}`);
+				}
+
+				const completionText = completion?.text;
+				if (!completionText) {
+					log.error('Received empty completion from context.sample.');
+					return createErrorResponse('Received empty completion from client LLM.');
+				}
+				log.info(`Received updated tasks completion from client LLM.`);
+
+				const updatedTasksData = parseUpdatedTasksFromCompletion(completionText);
+				if (!updatedTasksData || !Array.isArray(updatedTasksData)) {
+					log.error('Failed to parse valid updated tasks array from LLM completion.');
+					return createErrorResponse('Failed to parse valid updated tasks array from LLM completion.');
+				}
+				log.info(`Parsed ${updatedTasksData.length} updated task objects from completion.`);
+
+				const saveArgs = {
+					tasksJsonPath,
+					projectRoot: rootFolder,
+					updatedTasks: updatedTasksData
+				};
+				const result = await saveUpdatedTasksDirect(saveArgs, log);
+
+				return handleApiResult(result, log, `Error saving updated tasks (from ID ${args.from})`);
 			} catch (error) {
-				log.error(`Error in update tool: ${error.message}`);
-				return createErrorResponse(error.message);
+				log.error(`Unhandled error in update tool: ${error.message}`);
+				log.error(error.stack);
+				return createErrorResponse(`Internal server error during task update: ${error.message}`);
 			}
 		}
 	});

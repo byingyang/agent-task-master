@@ -637,40 +637,118 @@ export function parseSubtasksFromText(completionText, expectedCount, parentTaskI
  * @returns {{systemPrompt: string, userPrompt: string}}
  */
 export function _buildUpdateTaskPrompt(taskToUpdate, updatePrompt) {
-  const systemPrompt = `You are an AI assistant updating a specific development task based on new instructions. Your goal is to modify the provided task object according to the user's prompt and return the *complete, updated* task object in JSON format.
-
-Original Task:
-${JSON.stringify(taskToUpdate, null, 2)}
-
-User's Update Instructions:
-<update_prompt>
-${updatePrompt}
-</update_prompt>
+	const systemPrompt = `You are an AI assistant helping to update a software development task based on new context.
+You will be given a task and a prompt describing changes or new implementation details.
+Your job is to update the task to reflect these changes, while preserving its basic structure.
 
 Guidelines:
-1.  Carefully apply the changes requested in the <update_prompt> to the original task data.
-2.  Update fields like 'title', 'description', 'details', 'testStrategy', and potentially 'priority' or 'dependencies' if explicitly requested or clearly implied by the update.
-3.  If the update implies changes to subtasks, update the 'subtasks' array accordingly (preserving existing subtask IDs).
-4.  Preserve the original 'id' and 'status' unless the update prompt specifically requests changing them.
-5.  Maintain the overall structure of the task object.
-6.  Your response MUST be only the complete, updated JSON task object, starting with { and ending with }, with no additional text or explanations.
+1. VERY IMPORTANT: NEVER change the title of the task - keep it exactly as is
+2. Maintain the same ID, status, and dependencies unless specifically mentioned in the prompt
+3. Update the description, details, and test strategy to reflect the new information
+4. Do not change anything unnecessarily - just adapt what needs to change based on the prompt
+5. Return a complete valid JSON object representing the updated task
+6. VERY IMPORTANT: Preserve all subtasks marked as "done" or "completed" - do not modify their content
+7. For tasks with completed subtasks, build upon what has already been done rather than rewriting everything
+8. If an existing completed subtask needs to be changed/undone based on the new context, DO NOT modify it directly
+9. Instead, add a new subtask that clearly indicates what needs to be changed or replaced
+10. Use the existence of completed subtasks as an opportunity to make new subtasks more specific and targeted
+11. Ensure any new subtasks have unique IDs that don't conflict with existing ones
 
-Example Output Format (Updated Task Object):
-{
-  "id": ${taskToUpdate.id},
-  "title": "Updated Task Title based on Prompt",
-  "description": "Updated description.",
-  "status": "${taskToUpdate.status}", // Preserved unless changed
-  "dependencies": [/* updated dependencies */],
-  "priority": "medium", // Potentially updated
-  "details": "Updated implementation details...",
-  "testStrategy": "Updated test strategy...",
-  "subtasks": [/* updated subtasks if applicable */]
-}`;
+The changes described in the prompt should be thoughtfully applied to make the task more accurate and actionable.`;
 
-  // The user prompt is included in the system prompt for clarity
-  // The main 'user' message to the LLM can be simple
-  const userPrompt = `Please update the task based on the instructions provided in the system prompt and return the full updated JSON object.`;
+	const taskData = JSON.stringify(taskToUpdate, null, 2);
 
-  return { systemPrompt, userPrompt };
+	const userPrompt = `Here is the task to update:
+${taskData}
+
+Please update this task based on the following new context:
+${updatePrompt}
+
+IMPORTANT: In the task JSON above, any subtasks with "status": "done" or "status": "completed" should be preserved exactly as is. Build your changes around these completed items.
+
+Return only the updated task as a valid JSON object.`;
+
+	return { systemPrompt, userPrompt };
 }
+
+// --- NEW FUNCTIONS ADDED ---
+
+/**
+ * Builds system and user prompts for updating a single subtask.
+ * @param {Object} parentTask - The parent task object.
+ * @param {Object} subtaskToUpdate - The subtask object to be updated.
+ * @param {string} updatePrompt - User's instructions for the update.
+ * @returns {Object} Object containing systemPrompt and userPrompt.
+ */
+export function _buildUpdateSubtaskPrompt(parentTask, subtaskToUpdate, updatePrompt) {
+	const systemPrompt = `You are an AI assistant helping to update a specific subtask within a larger software development task.
+You will be given the parent task context and the specific subtask to update, along with instructions.
+Your job is to update *only the specified subtask* based on the instructions, primarily by appending information to its details field.
+
+Guidelines:
+1. Focus ONLY on the subtask with ID ${parentTask.id}.${subtaskToUpdate.id}.
+2. Primarily, you should APPEND the provided information to the existing 'details' field of the subtask.
+3. Add a timestamp before the appended notes, like "[YYYY-MM-DD HH:MM:SS] Notes added: ...".
+4. Maintain the subtask's existing ID, title, description, status, and dependencies unless the update prompt explicitly instructs otherwise (which is rare for this operation).
+5. Do NOT modify other subtasks or the parent task.
+6. Return a complete valid JSON object representing ONLY the single updated subtask.
+`;
+
+	const subtaskData = JSON.stringify(subtaskToUpdate, null, 2);
+	const parentContext = `Parent Task ID: ${parentTask.id}\\nParent Title: ${parentTask.title}`;
+
+	const userPrompt = `Parent Task Context:
+${parentContext}
+
+Subtask to Update (ID ${parentTask.id}.${subtaskToUpdate.id}):
+${subtaskData}
+
+Please update this subtask based on the following instructions (append to details unless otherwise specified):
+${updatePrompt}
+
+Return only the updated subtask as a valid JSON object.`;
+
+	return { systemPrompt, userPrompt };
+}
+
+/**
+ * Builds system and user prompts for updating multiple tasks.
+ * @param {Array<Object>} tasksToUpdate - Array of task objects to be updated.
+ * @param {string} updatePrompt - User's instructions for the update.
+ * @returns {Object} Object containing systemPrompt and userPrompt.
+ */
+export function _buildUpdateMultipleTasksPrompt(tasksToUpdate, updatePrompt) {
+	const systemPrompt = `You are an AI assistant helping to update software development tasks based on new context.
+You will be given a set of tasks and a prompt describing changes or new implementation details.
+Your job is to update the tasks to reflect these changes, while preserving their basic structure.
+
+Guidelines:
+1. Maintain the same IDs, statuses, and dependencies unless specifically mentioned in the prompt
+2. Update titles, descriptions, details, and test strategies to reflect the new information
+3. Do not change anything unnecessarily - just adapt what needs to change based on the prompt
+4. You should return ALL the tasks provided in the input, in the same order, even if some are unchanged.
+5. Return a complete valid JSON object containing ONLY a "tasks" array with the updated tasks: { "tasks": [...] }
+6. VERY IMPORTANT: Preserve all subtasks marked as "done" or "completed" - do not modify their content
+7. For tasks with completed subtasks, build upon what has already been done rather than rewriting everything
+8. If an existing completed subtask needs to be changed/undone based on the new context, DO NOT modify it directly
+9. Instead, add a new subtask that clearly indicates what needs to be changed or replaced
+10. Use the existence of completed subtasks as an opportunity to make new subtasks more specific and targeted
+
+The changes described in the prompt should be applied to ALL tasks in the list provided.`;
+
+	const taskData = JSON.stringify(tasksToUpdate, null, 2);
+
+	const userPrompt = `Here are the tasks to update:
+${taskData}
+
+Please update these tasks based on the following new context:
+${updatePrompt}
+
+IMPORTANT: In the tasks JSON above, any subtasks with "status": "done" or "status": "completed" should be preserved exactly as is. Build your changes around these completed items.
+
+Return only a valid JSON object containing a "tasks" array with ALL the updated tasks (even unchanged ones). Format: { "tasks": [...] }`;
+
+	return { systemPrompt, userPrompt };
+}
+
+// --- END NEW FUNCTIONS ---

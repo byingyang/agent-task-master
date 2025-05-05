@@ -42,8 +42,9 @@ export async function analyzeTaskComplexityDirect(args, log, context = {}) {
 		log.error('analyzeTaskComplexityDirect called without outputPath');
 		return { success: false, error: { code: 'MISSING_ARGUMENT', message: 'outputPath is required' }, fromCache: false };
 	}
-	if (!session || typeof session.llm?.complete !== 'function') {
-		const errorMessage = 'FastMCP sampling function (session.llm.complete) is not available.';
+	// Corrected check for context.sample
+	if (!context || typeof context.sample !== 'function') {
+		const errorMessage = 'FastMCP sampling function (context.sample) is not available.';
 		log.error(errorMessage);
 		return { success: false, error: { code: 'SAMPLING_UNAVAILABLE', message: errorMessage }, fromCache: false };
 	}
@@ -88,16 +89,17 @@ export async function analyzeTaskComplexityDirect(args, log, context = {}) {
 		}
 		log.info('Generated complexity analysis prompt for sampling.');
 
-		// 2. Call FastMCP Sampling
+		// 2. Call FastMCP Sampling (Using context.sample)
 		let completionText;
 		try {
 			log.info('Initiating FastMCP LLM sampling via client...');
 			// Note: Complexity analysis might benefit from a system prompt, adjust if needed
-			const completion = await session.llm.complete(analysisPrompt);
+			// Use context.sample
+			const completion = await context.sample(analysisPrompt); // Assuming no system prompt needed here, adjust if required
 			log.info('Received completion from client LLM.');
-			completionText = completion?.content;
+			completionText = completion?.text; // Assuming response structure { text: '...' }
 			if (!completionText) {
-				throw new Error('Received empty completion from client LLM via sampling.');
+				throw new Error('Received empty completion text from client LLM via sampling.');
 			}
 		} catch (error) {
 			log.error(`LLM sampling failed: ${error.message}`);
@@ -125,7 +127,7 @@ export async function analyzeTaskComplexityDirect(args, log, context = {}) {
 				tasksAnalyzed: tasksToAnalyze.length,
 				thresholdScore,
 				projectName: data.meta?.projectName || 'Unknown Project', // Get from tasks.json meta if possible
-				usedResearch // Include research hint used for prompt generation
+				research // Include research hint used for prompt generation
 			},
 			complexityAnalysis: analysisResults
 		};

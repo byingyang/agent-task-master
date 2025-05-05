@@ -9,9 +9,14 @@ import {
 	createErrorResponse,
 	getProjectRootFromSession
 } from './utils.js';
-import { analyzeTaskComplexityDirect } from '../core/task-master-core.js';
-import { findTasksJsonPath } from '../core/utils/path-utils.js';
+import { saveComplexityReportDirect } from '../core/task-master-core.js';
+import { findTasksJsonPath, readTasks } from '../core/utils/path-utils.js';
 import path from 'path';
+import fs from 'fs';
+import {
+	_generateAnalyzeComplexityPrompt,
+	parseComplexityReportFromCompletion
+} from '../core/utils/ai-client-utils.js';
 
 /**
  * Register the analyze tool with the MCP server
@@ -21,7 +26,7 @@ export function registerAnalyzeTool(server) {
 	server.addTool({
 		name: 'analyze_project_complexity',
 		description:
-			'Analyze task complexity and generate expansion recommendations',
+			'Analyze task complexity and generate expansion recommendations using client-side LLM sampling.',
 		parameters: z.object({
 			output: z
 				.string()
@@ -33,7 +38,7 @@ export function registerAnalyzeTool(server) {
 				.string()
 				.optional()
 				.describe(
-					'LLM model to use for analysis (defaults to configured model)'
+					'LLM model hint for client (defaults to client configuration)'
 				),
 			threshold: z.coerce
 				.number()
@@ -52,37 +57,38 @@ export function registerAnalyzeTool(server) {
 			research: z
 				.boolean()
 				.optional()
-				.describe('Use Perplexity AI for research-backed complexity analysis'),
+				.describe('Hint for client LLM to use research capabilities'),
 			projectRoot: z
 				.string()
-				.describe('The directory of the project. Must be an absolute path.')
+				.optional()
+				.describe('The directory of the project. Must be an absolute path. If not provided, derived from session.')
 		}),
-		execute: async (args, { log, session }) => {
+		execute: async (args, context) => {
+			const { log, session } = context;
 			try {
 				log.info(
 					`Analyzing task complexity with args: ${JSON.stringify(args)}`
 				);
 
-				// Get project root from args or session
 				const rootFolder =
 					args.projectRoot || getProjectRootFromSession(session, log);
 
 				if (!rootFolder) {
-					return createErrorResponse(
-						'Could not determine project root. Please provide it explicitly or ensure your session contains valid root information.'
-					);
+					return createErrorResponse('Could not determine project root.');
 				}
 
 				let tasksJsonPath;
+				let tasksData;
 				try {
 					tasksJsonPath = findTasksJsonPath(
 						{ projectRoot: rootFolder, file: args.file },
 						log
 					);
+					tasksData = readTasks(tasksJsonPath, log);
 				} catch (error) {
-					log.error(`Error finding tasks.json: ${error.message}`);
+					log.error(`Error finding or reading tasks.json: ${error.message}`);
 					return createErrorResponse(
-						`Failed to find tasks.json: ${error.message}`
+						`Failed to find or read tasks.json: ${error.message}`
 					);
 				}
 
@@ -90,33 +96,59 @@ export function registerAnalyzeTool(server) {
 					? path.resolve(rootFolder, args.output)
 					: path.resolve(rootFolder, 'scripts', 'task-complexity-report.json');
 
-				const result = await analyzeTaskComplexityDirect(
-					{
-						tasksJsonPath: tasksJsonPath,
-						outputPath: outputPath,
-						model: args.model,
-						threshold: args.threshold,
-						research: args.research
-					},
-					log,
-					{ session }
+				const { systemPrompt, userPrompt } = _generateAnalyzeComplexityPrompt(
+					tasksData.tasks,
+					args.threshold || 5,
+					args.research
 				);
-
-				if (result.success) {
-					log.info(`Task complexity analysis complete: ${result.data.message}`);
-					log.info(
-						`Report summary: ${JSON.stringify(result.data.reportSummary)}`
-					);
-				} else {
-					log.error(
-						`Failed to analyze task complexity: ${result.error.message}`
-					);
+				if (!userPrompt) {
+					return createErrorResponse('Failed to generate prompt for complexity analysis.');
 				}
 
-				return handleApiResult(result, log, 'Error analyzing task complexity');
+				log.info('Initiating client-side LLM sampling via context.sample for complexity analysis...');
+				let completion;
+				try {
+					if (typeof context.sample !== 'function') {
+						throw new Error('FastMCP sampling function (context.sample) is not available.');
+					}
+					completion = await context.sample(userPrompt, { system: systemPrompt });
+				} catch (sampleError) {
+					log.error(`context.sample failed: ${sampleError.message}`);
+					return createErrorResponse(`Client-side sampling failed: ${sampleError.message}`);
+				}
+
+				const completionText = completion?.text;
+				if (!completionText) {
+					log.error('Received empty completion from context.sample.');
+					return createErrorResponse('Received empty completion from client LLM.');
+				}
+				log.info('Received complexity analysis completion from client LLM.');
+
+				const reportData = parseComplexityReportFromCompletion(completionText);
+				if (!reportData) {
+					log.error('Failed to parse valid complexity report from LLM completion.');
+					return createErrorResponse('Failed to parse valid complexity report from LLM completion.');
+				}
+				log.info('Parsed complexity report from completion.');
+
+				const saveArgs = {
+					outputPath,
+					reportData,
+					projectRoot: rootFolder
+				};
+				const result = await saveComplexityReportDirect(saveArgs, log);
+
+				if (result.success) {
+					log.info(`Task complexity analysis report saved successfully.`);
+				} else {
+					log.error(`Failed to save task complexity report: ${result.error?.message || 'Unknown error'}`);
+				}
+
+				return handleApiResult(result, log, 'Error saving task complexity report');
 			} catch (error) {
-				log.error(`Error in analyze tool: ${error.message}`);
-				return createErrorResponse(error.message);
+				log.error(`Unhandled error in analyze_project_complexity tool: ${error.message}`);
+				log.error(error.stack);
+				return createErrorResponse(`Internal server error during complexity analysis: ${error.message}`);
 			}
 		}
 	});
