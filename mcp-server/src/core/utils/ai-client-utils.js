@@ -518,7 +518,7 @@ export function parseComplexityAnalysis(completionText) {
  * @param {Object|null} [complexityReport=null] - Optional complexity report data.
  * @returns {string} The formatted prompt for the AI.
  */
-export function generateSubtaskPrompt(task, numSubtasks, additionalContext = '', complexityReport = null) {
+function generateSubtaskPrompt(task, numSubtasks, additionalContext = '', complexityReport = null) {
     // Determine the target number of subtasks
     let targetNumSubtasks = numSubtasks;
     if (targetNumSubtasks === undefined && complexityReport?.complexityAnalysis) {
