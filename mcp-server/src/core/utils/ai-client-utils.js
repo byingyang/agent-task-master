@@ -636,7 +636,7 @@ export function parseSubtasksFromText(completionText, expectedCount, parentTaskI
  * @param {string} updatePrompt - The user's instructions for the update.
  * @returns {{systemPrompt: string, userPrompt: string}}
  */
-export function _buildUpdateTaskPrompt(taskToUpdate, updatePrompt) {
+function _buildUpdateTaskPrompt(taskToUpdate, updatePrompt) {
 	const systemPrompt = `You are an AI assistant helping to update a software development task based on new context.
 You will be given a task and a prompt describing changes or new implementation details.
 Your job is to update the task to reflect these changes, while preserving its basic structure.
