@@ -680,7 +680,7 @@ Return only the updated task as a valid JSON object.`;
  * @param {string} updatePrompt - User's instructions for the update.
  * @returns {Object} Object containing systemPrompt and userPrompt.
  */
-export function _buildUpdateSubtaskPrompt(parentTask, subtaskToUpdate, updatePrompt) {
+function _buildUpdateSubtaskPrompt(parentTask, subtaskToUpdate, updatePrompt) {
 	const systemPrompt = `You are an AI assistant helping to update a specific subtask within a larger software development task.
 You will be given the parent task context and the specific subtask to update, along with instructions.
 Your job is to update *only the specified subtask* based on the instructions, primarily by appending information to its details field.
