@@ -586,7 +586,7 @@ Example Output Format:
  * @param {string|number} [parentTaskId] - Optional: ID of the parent task (for logging).
  * @returns {Array|null} An array of subtask objects ({title, description, details}) or null if parsing fails.
  */
-export function parseSubtasksFromText(completionText, expectedCount, parentTaskId) {
+function parseSubtasksFromText(completionText, expectedCount, parentTaskId) {
   try {
     const jsonStart = completionText.indexOf('[');
     const jsonEnd = completionText.lastIndexOf(']');
