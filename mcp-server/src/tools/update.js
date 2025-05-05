@@ -11,7 +11,7 @@ import {
 } from './utils.js';
 import { saveUpdatedTasksDirect } from '../core/task-master-core.js';
 import { findTasksJsonPath } from '../core/utils/path-utils.js';
-import { readTasks } from '../../../../scripts/modules/utils.js';
+import { readTasks } from '../../../scripts/modules/utils.js';
 import {
 	_buildUpdateMultipleTasksPrompt,
 	parseTasksFromCompletion
