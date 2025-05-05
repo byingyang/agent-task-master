@@ -13,7 +13,7 @@ import { saveUpdatedTasksDirect } from '../core/task-master-core.js';
 import { findTasksJsonPath, readTasks } from '../core/utils/path-utils.js';
 import {
 	_buildUpdateMultipleTasksPrompt,
-	parseUpdatedTasksFromCompletion
+	parseTasksFromCompletion
 } from '../core/utils/ai-client-utils.js';
 
 /**
@@ -111,17 +111,17 @@ export function registerUpdateTool(server) {
 				}
 				log.info(`Received updated tasks completion from client LLM.`);
 
-				const updatedTasksData = parseUpdatedTasksFromCompletion(completionText);
-				if (!updatedTasksData || !Array.isArray(updatedTasksData)) {
-					log.error('Failed to parse valid updated tasks array from LLM completion.');
-					return createErrorResponse('Failed to parse valid updated tasks array from LLM completion.');
+				const updatedTasksData = parseTasksFromCompletion(completionText);
+				if (!updatedTasksData || !Array.isArray(updatedTasksData.tasks)) {
+					log.error('Failed to parse valid updated tasks structure { tasks: [...] } from LLM completion.');
+					return createErrorResponse('Failed to parse valid updated tasks structure from LLM completion.');
 				}
-				log.info(`Parsed ${updatedTasksData.length} updated task objects from completion.`);
+				log.info(`Parsed ${updatedTasksData.tasks.length} updated task objects from completion.`);
 
 				const saveArgs = {
 					tasksJsonPath,
 					projectRoot: rootFolder,
-					updatedTasks: updatedTasksData
+					updatedTasks: updatedTasksData.tasks
 				};
 				const result = await saveUpdatedTasksDirect(saveArgs, log);
 
