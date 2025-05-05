@@ -12,7 +12,7 @@ import {
 import { saveUpdatedTasksDirect } from '../core/task-master-core.js';
 import { findTasksJsonPath, readTasks } from '../core/utils/path-utils.js';
 import {
-	_generateUpdateTasksPrompt,
+	_buildUpdateMultipleTasksPrompt,
 	parseUpdatedTasksFromCompletion
 } from '../core/utils/ai-client-utils.js';
 
@@ -82,7 +82,7 @@ export function registerUpdateTool(server) {
 
 				log.info(`Found ${tasksToUpdateContext.length} tasks potentially affected by the update prompt.`);
 
-				const { systemPrompt, userPrompt } = _generateUpdateTasksPrompt(
+				const { systemPrompt, userPrompt } = _buildUpdateMultipleTasksPrompt(
 					args.prompt,
 					tasksToUpdateContext,
 					args.from,
