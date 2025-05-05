@@ -11,7 +11,7 @@ import {
 } from './utils.js';
 import { saveUpdatedTasksDirect } from '../core/task-master-core.js';
 import { findTasksJsonPath } from '../core/utils/path-utils.js';
-import { readTasks } from '../../../scripts/modules/utils.js';
+import { readJSON } from '../../../scripts/modules/utils.js';
 import {
 	_buildUpdateMultipleTasksPrompt,
 	parseTasksFromCompletion
@@ -63,7 +63,10 @@ export function registerUpdateTool(server) {
 						{ projectRoot: rootFolder, file: args.file },
 						log
 					);
-					existingTasksData = readTasks(tasksJsonPath, log);
+					existingTasksData = readJSON(tasksJsonPath);
+					if (!existingTasksData || !Array.isArray(existingTasksData.tasks)) {
+						throw new Error('Invalid tasks.json structure: \'tasks\' array not found.');
+					}
 				} catch (error) {
 					log.error(`Error finding or reading tasks.json: ${error.message}`);
 					return createErrorResponse(

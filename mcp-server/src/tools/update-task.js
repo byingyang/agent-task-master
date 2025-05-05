@@ -10,12 +10,13 @@ import {
 	getProjectRootFromSession
 } from './utils.js';
 import { saveUpdatedTasksDirect } from '../core/task-master-core.js';
-import { findTasksJsonPath, readTasks } from '../core/utils/path-utils.js';
+import { findTasksJsonPath } from '../core/utils/path-utils.js';
+import { readJSON } from '../../../scripts/modules/utils.js';
 
 // NEW: Import AI utils
 import {
-	_generateUpdateSingleTaskPrompt, // Assuming name
-	parseSingleUpdatedTaskFromCompletion // Assuming name
+	_buildUpdateTaskPrompt,
+	parseTaskJsonResponse
 } from '../core/utils/ai-client-utils.js';
 
 /**
@@ -65,11 +66,12 @@ export function registerUpdateTaskTool(server) {
 						{ projectRoot: rootFolder, file: args.file },
 						log
 					);
-					existingTasksData = readTasks(tasksJsonPath, log);
+					existingTasksData = readJSON(tasksJsonPath, log);
 					taskToUpdate = existingTasksData.tasks.find(t => t.id === args.id);
 					if (!taskToUpdate) {
 						throw new Error(`Task with ID ${args.id} not found.`);
 					}
+					log.info(`Task ID ${args.id} found for update.`);
 				} catch (error) {
 					log.error(`Error finding/reading tasks.json or task ${args.id}: ${error.message}`);
 					return createErrorResponse(
@@ -77,16 +79,17 @@ export function registerUpdateTaskTool(server) {
 					);
 				}
 
-				const { systemPrompt, userPrompt } = _generateUpdateSingleTaskPrompt(
-					args.prompt,
+				// Generate prompts
+				const { systemPrompt, userPrompt } = _buildUpdateTaskPrompt(
 					taskToUpdate,
-					args.research
+					args.prompt
 				);
+
 				if (!userPrompt) {
-					return createErrorResponse(`Failed to generate prompt for updating task ${args.id}.`);
+					return createErrorResponse('Failed to generate prompt for updating the task.');
 				}
 
-				log.info(`Initiating client-side LLM sampling via context.sample for updating task ID ${args.id}...`);
+				log.info(`Initiating client-side LLM sampling via context.sample for updating task ${args.id}...`);
 				let completion;
 				try {
 					if (typeof context.sample !== 'function') {
@@ -103,19 +106,27 @@ export function registerUpdateTaskTool(server) {
 					log.error('Received empty completion from context.sample.');
 					return createErrorResponse('Received empty completion from client LLM.');
 				}
-				log.info(`Received updated task completion from client LLM for task ${args.id}.`);
+				log.info(`Received updated task completion from client LLM.`);
 
-				const updatedTaskData = parseSingleUpdatedTaskFromCompletion(completionText);
-				if (!updatedTaskData || typeof updatedTaskData !== 'object' || updatedTaskData.id !== args.id) {
-					log.error(`Failed to parse valid updated task object (ID: ${args.id}) from LLM completion.`);
-					return createErrorResponse(`Failed to parse valid updated task object (ID: ${args.id}) from LLM completion.`);
+				// Parse the single updated task
+				const updatedTask = parseTaskJsonResponse(completionText);
+				if (!updatedTask || typeof updatedTask !== 'object' || !updatedTask.id) {
+					log.error('Failed to parse a valid updated task object from LLM completion.');
+					return createErrorResponse('Failed to parse a valid updated task object from LLM completion.');
 				}
-				log.info(`Parsed updated task object for ID ${args.id} from completion.`);
+				// Ensure the ID matches the original task being updated
+				if (String(updatedTask.id) !== String(args.id)) {
+					log.error(`Parsed task ID (${updatedTask.id}) does not match requested ID (${args.id}).`);
+					return createErrorResponse(`LLM returned task with incorrect ID.`);
+				}
 
+				log.info(`Parsed updated task object for ID: ${updatedTask.id}`);
+
+				// Call the same save function as the 'update' tool, passing an array with the single updated task
 				const saveArgs = {
 					tasksJsonPath,
 					projectRoot: rootFolder,
-					updatedTasks: [updatedTaskData]
+					updatedTasks: [updatedTask]
 				};
 				const result = await saveUpdatedTasksDirect(saveArgs, log);
 

@@ -10,10 +10,11 @@ import {
 	getProjectRootFromSession
 } from './utils.js';
 import { saveMultipleTaskSubtasksDirect } from '../core/task-master-core.js';
-import { findTasksJsonPath, readTasks } from '../core/utils/path-utils.js';
+import { findTasksJsonPath } from '../core/utils/path-utils.js';
+import { readJSON } from '../../../scripts/modules/utils.js';
 import {
-	_generateExpandTaskPrompt,
-	parseSubtasksFromCompletion
+	generateSubtaskPrompt,
+	parseSubtasksFromText
 } from '../core/utils/ai-client-utils.js';
 
 /**
@@ -72,7 +73,7 @@ export function registerExpandAllTool(server) {
 						{ projectRoot: rootFolder, file: args.file },
 						log
 					);
-					existingTasksData = readTasks(tasksJsonPath, log);
+					existingTasksData = readJSON(tasksJsonPath, log);
 				} catch (error) {
 					log.error(`Error finding or reading tasks.json: ${error.message}`);
 					return createErrorResponse(
@@ -90,23 +91,40 @@ export function registerExpandAllTool(server) {
 				}
 
 				log.info(`Found ${tasksToExpand.length} tasks eligible for expansion.`);
-				const allSubtaskUpdates = [];
+				const results = [];
+				let failedCount = 0;
 
-				for (const parentTask of tasksToExpand) {
-					log.info(`Processing expansion for task ID: ${parentTask.id}`);
-					const { systemPrompt, userPrompt } = _generateExpandTaskPrompt(
-						parentTask,
-						args.num,
-						args.prompt,
-						args.research
+				for (const task of tasksToExpand) {
+					log.info(`Expanding task ${task.id}: "${task.title}"`);
+
+					// Find complexity analysis for this task, if available
+					const taskAnalysis = complexityReport
+						? complexityReport.complexityAnalysis?.find(a => String(a.taskId) === String(task.id))
+						: null;
+                    
+                    // Determine target subtask count, using analysis if available
+                    const numSubtasksForThisTask = taskAnalysis?.recommendedSubtasks 
+                        ? taskAnalysis.recommendedSubtasks 
+                        : (args.num ? parseInt(args.num, 10) : undefined);
+
+					// Generate prompt using the correct function
+					const userPrompt = generateSubtaskPrompt(
+						task,
+                        numSubtasksForThisTask,
+						args.prompt, // General prompt applies to all
+                        taskAnalysis // Pass analysis for context
 					);
 
 					if (!userPrompt) {
-						log.warn(`Skipping task ${parentTask.id}: Failed to generate expansion prompt.`);
+						log.warn(`Skipping task ${task.id}: Failed to generate prompt.`);
+						failedCount++;
 						continue;
 					}
 
-					log.info(`Initiating client-side LLM sampling for task ${parentTask.id}...`);
+					// System prompt is null for subtask generation
+					const systemPrompt = null;
+
+					log.info(`Initiating sampling for task ${task.id}...`);
 					let completion;
 					try {
 						if (typeof context.sample !== 'function') {
@@ -114,44 +132,46 @@ export function registerExpandAllTool(server) {
 						}
 						completion = await context.sample(userPrompt, { system: systemPrompt });
 					} catch (sampleError) {
-						log.error(`context.sample failed for task ${parentTask.id}: ${sampleError.message}`);
-						log.warn(`Skipping expansion for task ${parentTask.id} due to sampling error.`);
-						continue;
+						log.error(`Sampling failed for task ${task.id}: ${sampleError.message}`);
+						failedCount++;
+						continue; // Skip to next task
 					}
 
 					const completionText = completion?.text;
 					if (!completionText) {
-						log.warn(`Skipping task ${parentTask.id}: Received empty completion from client LLM.`);
+						log.warn(`Skipping task ${task.id}: Received empty completion.`);
+						failedCount++;
 						continue;
 					}
-					log.info(`Received subtask completion for task ${parentTask.id}.`);
 
-					const newSubtasks = parseSubtasksFromCompletion(completionText);
-					if (!newSubtasks || !Array.isArray(newSubtasks)) {
-						log.warn(`Skipping task ${parentTask.id}: Failed to parse valid subtasks array from completion.`);
+					// Parse subtasks using the correct function
+					const subtasks = parseSubtasksFromText(completionText, numSubtasksForThisTask, task.id);
+					if (!subtasks || !Array.isArray(subtasks)) {
+						log.warn(`Skipping task ${task.id}: Failed to parse subtasks from completion.`);
+						failedCount++;
 						continue;
 					}
-					log.info(`Parsed ${newSubtasks.length} subtasks for task ${parentTask.id}.`);
 
-					allSubtaskUpdates.push({ parentTaskId: parentTask.id, subtasks: newSubtasks });
+					results.push({ taskId: task.id, subtasks });
+					log.info(`Successfully generated ${subtasks.length} subtasks for task ${task.id}`);
 				}
 
-				if (allSubtaskUpdates.length === 0) {
-					 log.warn('No tasks were successfully expanded after processing.');
-					 return handleApiResult({ success: true, data: { message: 'No tasks were successfully expanded.' } }, log);
+				if (results.length === 0) {
+                    const message = failedCount > 0 ? `Expansion failed for all ${failedCount} eligible tasks.` : 'No tasks eligible for expansion were found.';
+					return handleApiResult({ success: true, data: { message } }, log);
 				}
 
-				log.info(`Successfully generated subtasks for ${allSubtaskUpdates.length} tasks. Saving changes...`);
-
+				// Call direct function to save all generated subtasks
 				const saveArgs = {
 					tasksJsonPath,
 					projectRoot: rootFolder,
-					updates: allSubtaskUpdates,
-					force: args.force
+					subtaskUpdates: results, // Array of {taskId, subtasks}
+                    force: args.force === true
 				};
-				const result = await saveMultipleTaskSubtasksDirect(saveArgs, log);
+                // This likely needs a new direct function: saveMultipleTaskSubtasksDirect
+				const saveResult = await saveMultipleTaskSubtasksDirect(saveArgs, log);
 
-				return handleApiResult(result, log, 'Error saving expanded subtasks for multiple tasks');
+				return handleApiResult(saveResult, log, 'Error saving expanded subtasks for multiple tasks');
 
 			} catch (error) {
 				log.error(`Unhandled error in expand-all tool: ${error.message}`);

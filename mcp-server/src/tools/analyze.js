@@ -9,13 +9,14 @@ import {
 	createErrorResponse,
 	getProjectRootFromSession
 } from './utils.js';
-import { saveComplexityReportDirect } from '../core/task-master-core.js';
-import { findTasksJsonPath, readTasks } from '../core/utils/path-utils.js';
+import { analyzeTaskComplexityDirect } from '../core/task-master-core.js';
+import { findTasksJsonPath } from '../core/utils/path-utils.js';
+import { readJSON } from '../../../scripts/modules/utils.js';
 import path from 'path';
 import fs from 'fs';
 import {
-	_generateAnalyzeComplexityPrompt,
-	parseComplexityReportFromCompletion
+	generateComplexityAnalysisPrompt,
+	parseComplexityAnalysis
 } from '../core/utils/ai-client-utils.js';
 
 /**
@@ -84,7 +85,7 @@ export function registerAnalyzeTool(server) {
 						{ projectRoot: rootFolder, file: args.file },
 						log
 					);
-					tasksData = readTasks(tasksJsonPath, log);
+					tasksData = readJSON(tasksJsonPath, log);
 				} catch (error) {
 					log.error(`Error finding or reading tasks.json: ${error.message}`);
 					return createErrorResponse(
@@ -96,9 +97,9 @@ export function registerAnalyzeTool(server) {
 					? path.resolve(rootFolder, args.output)
 					: path.resolve(rootFolder, 'scripts', 'task-complexity-report.json');
 
-				const { systemPrompt, userPrompt } = _generateAnalyzeComplexityPrompt(
+				const { systemPrompt, userPrompt } = generateComplexityAnalysisPrompt(
 					tasksData.tasks,
-					args.threshold || 5,
+					parseFloat(args.threshold || '5'),
 					args.research
 				);
 				if (!userPrompt) {
@@ -122,29 +123,29 @@ export function registerAnalyzeTool(server) {
 					log.error('Received empty completion from context.sample.');
 					return createErrorResponse('Received empty completion from client LLM.');
 				}
-				log.info('Received complexity analysis completion from client LLM.');
+				log.info(`Received complexity analysis completion from client LLM.`);
 
-				const reportData = parseComplexityReportFromCompletion(completionText);
-				if (!reportData) {
-					log.error('Failed to parse valid complexity report from LLM completion.');
-					return createErrorResponse('Failed to parse valid complexity report from LLM completion.');
+				const analysisReport = parseComplexityAnalysis(completionText);
+				if (!analysisReport || !Array.isArray(analysisReport.complexityAnalysis)) {
+					log.error('Failed to parse valid complexity analysis report from LLM completion.');
+					return createErrorResponse('Failed to parse valid complexity analysis report from LLM completion.');
 				}
-				log.info('Parsed complexity report from completion.');
+				log.info(`Parsed complexity analysis report with ${analysisReport.complexityAnalysis.length} entries.`);
 
-				const saveArgs = {
+				// Prepare args for analyzeTaskComplexityDirect
+				const directArgs = {
+					tasksJsonPath,
 					outputPath,
-					reportData,
-					projectRoot: rootFolder
+					projectRoot: rootFolder,
+					model: args.model,
+					threshold: args.threshold,
+					research: args.research
 				};
-				const result = await saveComplexityReportDirect(saveArgs, log);
 
-				if (result.success) {
-					log.info(`Task complexity analysis report saved successfully.`);
-				} else {
-					log.error(`Failed to save task complexity report: ${result.error?.message || 'Unknown error'}`);
-				}
+				// Call analyzeTaskComplexityDirect, passing session for sampling
+				const result = await analyzeTaskComplexityDirect(directArgs, log, { session });
 
-				return handleApiResult(result, log, 'Error saving task complexity report');
+				return handleApiResult(result, log, 'Error analyzing project complexity');
 			} catch (error) {
 				log.error(`Unhandled error in analyze_project_complexity tool: ${error.message}`);
 				log.error(error.stack);

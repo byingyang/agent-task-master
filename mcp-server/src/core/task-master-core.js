@@ -28,6 +28,9 @@ import { addDependencyDirect } from './direct-functions/add-dependency.js';
 import { removeTaskDirect } from './direct-functions/remove-task.js';
 import { initializeProjectDirect } from './direct-functions/initialize-project-direct.js';
 import { saveTasksAndGenerateFilesDirect } from './direct-functions/parse-prd.js';
+import { saveUpdatedTasksDirect } from './direct-functions/save-updated-tasks.js';
+import { saveSubtasksDirect } from './direct-functions/save-subtasks.js';
+import { saveMultipleTaskSubtasksDirect } from './direct-functions/save-multiple-task-subtasks.js';
 
 // Re-export utility functions
 export { findTasksJsonPath } from './utils/path-utils.js';
@@ -64,7 +67,11 @@ export const directFunctions = new Map([
 	['fixDependenciesDirect', fixDependenciesDirect],
 	['complexityReportDirect', complexityReportDirect],
 	['addDependencyDirect', addDependencyDirect],
-	['removeTaskDirect', removeTaskDirect]
+	['removeTaskDirect', removeTaskDirect],
+	['initializeProjectDirect', initializeProjectDirect],
+	['saveUpdatedTasksDirect', saveUpdatedTasksDirect],
+	['saveSubtasksDirect', saveSubtasksDirect],
+	['saveMultipleTaskSubtasksDirect', saveMultipleTaskSubtasksDirect]
 ]);
 
 // Re-export all direct function implementations
@@ -91,5 +98,8 @@ export {
 	addDependencyDirect,
 	removeTaskDirect,
 	initializeProjectDirect,
-	saveTasksAndGenerateFilesDirect
+	saveTasksAndGenerateFilesDirect,
+	saveUpdatedTasksDirect,
+	saveSubtasksDirect,
+	saveMultipleTaskSubtasksDirect
 };

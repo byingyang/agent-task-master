@@ -10,12 +10,13 @@ import {
 	getProjectRootFromSession
 } from './utils.js';
 import { saveSubtasksDirect } from '../core/task-master-core.js';
-import { findTasksJsonPath, readTasks } from '../core/utils/path-utils.js';
+import { findTasksJsonPath } from '../core/utils/path-utils.js';
+import { readJSON } from '../../../scripts/modules/utils.js';
 import fs from 'fs';
 import path from 'path';
 import {
-	_generateExpandTaskPrompt,
-	parseSubtasksFromCompletion
+	generateSubtaskPrompt,
+	parseSubtasksFromText
 } from '../core/utils/ai-client-utils.js';
 
 /**
@@ -63,7 +64,7 @@ export function registerExpandTaskTool(server) {
 						{ projectRoot: rootFolder, file: args.file },
 						log
 					);
-					existingTasksData = readTasks(tasksJsonPath, log);
+					existingTasksData = readJSON(tasksJsonPath, log);
 					parentTask = existingTasksData.tasks.find(t => t.id === args.id);
 					if (!parentTask) {
 						throw new Error(`Task with ID ${args.id} not found.`);
@@ -78,17 +79,20 @@ export function registerExpandTaskTool(server) {
 					);
 				}
 
-				const { systemPrompt, userPrompt } = _generateExpandTaskPrompt(
+				const userPrompt = generateSubtaskPrompt(
 					parentTask,
-					args.num,
+					args.num ? parseInt(args.num, 10) : undefined,
 					args.prompt,
 					args.research
 				);
+
 				if (!userPrompt) {
-					return createErrorResponse('Failed to generate prompt for expanding task.');
+					return createErrorResponse('Failed to generate prompt for expanding the task.');
 				}
 
-				log.info(`Initiating client-side LLM sampling via context.sample for expand_task ID ${args.id}...`);
+				const systemPrompt = null;
+
+				log.info(`Initiating client-side LLM sampling via context.sample for expanding task ${args.id}...`);
 				let completion;
 				try {
 					if (typeof context.sample !== 'function') {
@@ -105,21 +109,21 @@ export function registerExpandTaskTool(server) {
 					log.error('Received empty completion from context.sample.');
 					return createErrorResponse('Received empty completion from client LLM.');
 				}
-				log.info(`Received subtask completion for task ${args.id} from client LLM.`);
+				log.info(`Received subtask completion from client LLM.`);
 
-				const newSubtasks = parseSubtasksFromCompletion(completionText);
-				if (!newSubtasks || !Array.isArray(newSubtasks)) {
+				const subtasks = parseSubtasksFromText(completionText, args.num ? parseInt(args.num, 10) : undefined, args.id);
+				if (!subtasks || !Array.isArray(subtasks)) {
 					log.error('Failed to parse valid subtasks array from LLM completion.');
 					return createErrorResponse('Failed to parse valid subtasks array from LLM completion.');
 				}
-				log.info(`Parsed ${newSubtasks.length} new subtasks for task ${args.id} from completion.`);
+				log.info(`Parsed ${subtasks.length} subtasks from completion.`);
 
 				const saveArgs = {
 					tasksJsonPath,
 					projectRoot: rootFolder,
-					parentTaskId: args.id,
-					subtasks: newSubtasks,
-					force: args.force
+					taskId: args.id,
+					subtasks,
+					force: args.force === true
 				};
 				const result = await saveSubtasksDirect(saveArgs, log);
 

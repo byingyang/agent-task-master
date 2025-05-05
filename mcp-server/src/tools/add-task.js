@@ -11,12 +11,13 @@ import {
 	executeTaskMasterCommand,
 	handleApiResult
 } from './utils.js';
-import { saveNewTaskDirect } from '../core/task-master-core.js';
-import { findTasksJsonPath, readTasks } from '../core/utils/path-utils.js';
+import { addTaskDirect } from '../core/task-master-core.js';
+import { findTasksJsonPath } from '../core/utils/path-utils.js';
+import { readJSON } from '../../../scripts/modules/utils.js';
 import fs from 'fs';
 import {
-	_generateAddTaskPrompt,
-	parseTaskFromCompletion
+	_buildAddTaskPrompt,
+	parseTaskJsonResponse
 } from '../core/utils/ai-client-utils.js';
 
 /**
@@ -76,7 +77,7 @@ export function registerAddTaskTool(server) {
 						{ projectRoot: rootFolder, file: args.file },
 						log
 					);
-					existingTasksData = readTasks(tasksJsonPath, log);
+					existingTasksData = readJSON(tasksJsonPath, log);
 				} catch (error) {
 					log.error(`Error finding or reading tasks.json: ${error.message}`);
 					return createErrorResponse(
@@ -87,19 +88,16 @@ export function registerAddTaskTool(server) {
 				if (!args.prompt) {
 					return createErrorResponse('Task prompt is required for AI task generation.');
 				}
-				const { systemPrompt, userPrompt } = _generateAddTaskPrompt(
+				const { systemPrompt, userPrompt } = _buildAddTaskPrompt(
 					args.prompt,
 					existingTasksData.tasks,
-					args.dependencies,
-					args.priority,
-					args.research,
-					{ titleHint: args.title, descriptionHint: args.description }
+					{ newTaskId: 'TBD' }
 				);
 				if (!userPrompt) {
-					return createErrorResponse('Failed to generate prompt for adding task.');
+					return createErrorResponse('Failed to generate prompt for adding the task.');
 				}
 
-				log.info('Initiating client-side LLM sampling via context.sample for add_task...');
+				log.info('Initiating client-side LLM sampling via context.sample for adding a new task...');
 				let completion;
 				try {
 					if (typeof context.sample !== 'function') {
@@ -116,21 +114,28 @@ export function registerAddTaskTool(server) {
 					log.error('Received empty completion from context.sample.');
 					return createErrorResponse('Received empty completion from client LLM.');
 				}
-				log.info('Received new task completion from client LLM.');
+				log.info(`Received new task completion from client LLM.`);
 
-				const newTaskData = parseTaskFromCompletion(completionText);
+				const newTaskData = parseTaskJsonResponse(completionText);
 				if (!newTaskData || typeof newTaskData !== 'object' || !newTaskData.title) {
-					log.error('Failed to parse valid task object from LLM completion.');
-					return createErrorResponse('Failed to parse valid task object from LLM completion.');
+					log.error('Failed to parse a valid new task object from LLM completion.');
+					return createErrorResponse('Failed to parse a valid new task object from LLM completion.');
 				}
-				log.info(`Parsed new task: "${newTaskData.title}" from completion.`);
+				log.info(`Parsed new task object: "${newTaskData.title}"`);
 
-				const saveArgs = {
+				const directArgs = {
 					tasksJsonPath,
 					projectRoot: rootFolder,
-					newTaskData
+					prompt: args.prompt,
+					dependencies: args.dependencies,
+					priority: args.priority,
+					research: args.research,
+					title: args.title,
+					description: args.description,
+					details: args.details,
+					testStrategy: args.testStrategy
 				};
-				const result = await saveNewTaskDirect(saveArgs, log);
+				const result = await addTaskDirect(directArgs, log, { session });
 
 				return handleApiResult(result, log, 'Error saving new task');
 			} catch (error) {
