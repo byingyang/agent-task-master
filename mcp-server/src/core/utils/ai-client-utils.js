@@ -752,3 +752,23 @@ Return only a valid JSON object containing a "tasks" array with ALL the updated 
 }
 
 // --- END NEW FUNCTIONS ---
+
+// Export all utility functions
+export {
+	getAnthropicClientForMCP,
+	getPerplexityClientForMCP,
+	getModelConfig,
+	getBestAvailableAIModel,
+	handleClaudeError,
+	_generateParsePRDPrompt,
+	parseTasksFromCompletion,
+	_buildAddTaskPrompt,
+	parseTaskJsonResponse,
+	generateComplexityAnalysisPrompt,
+	parseComplexityAnalysis,
+	generateSubtaskPrompt,
+	parseSubtasksFromText,
+	_buildUpdateTaskPrompt,
+	_buildUpdateSubtaskPrompt,
+	_buildUpdateMultipleTasksPrompt
+};
