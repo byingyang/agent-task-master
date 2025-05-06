@@ -62,9 +62,9 @@ export async function expandTaskDirect(args, log, context = {}) {
 			fromCache: false
 		};
 	}
-	// Corrected check for context.sample
-	if (!context || typeof context.sample !== 'function') {
-		const errorMessage = 'FastMCP sampling function (context.sample) is not available.';
+	// Corrected check for session.requestSampling
+	if (!session || typeof session.requestSampling !== 'function') {
+		const errorMessage = 'FastMCP sampling function (session.requestSampling) is not available.';
 		log.error(errorMessage);
 		return {
 			success: false,
@@ -155,14 +155,16 @@ export async function expandTaskDirect(args, log, context = {}) {
 		}
 		log.info('Generated subtask expansion prompt for sampling.');
 
-		// 2. Call FastMCP Sampling (Using context.sample)
+		// 2. Call FastMCP Sampling (Using session.requestSampling)
 		let completionText;
 		try {
 			log.info('Initiating FastMCP LLM sampling via client...');
-			// Use context.sample
-			const completion = await context.sample(subtaskPrompt); // Pass the generated prompt
+			const completion = await session.requestSampling({ // Use session.requestSampling
+				messages: [{ role: 'user', content: { type: 'text', text: subtaskPrompt } }]
+				// No systemPrompt for subtask generation typically
+			});
 			log.info('Received completion from client LLM.');
-			completionText = completion?.text; // Adjust access as needed
+			completionText = completion?.content; // Adjusted to common FastMCP response structure
 			if (!completionText) {
 				throw new Error('Received empty completion text from client LLM via sampling.');
 			}

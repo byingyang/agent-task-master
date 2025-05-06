@@ -127,17 +127,20 @@ export function registerExpandAllTool(server) {
 					log.info(`Initiating sampling for task ${task.id}...`);
 					let completion;
 					try {
-						if (typeof context.sample !== 'function') {
-							throw new Error('FastMCP sampling function (context.sample) is not available.');
+						if (typeof session.requestSampling !== 'function') {
+							throw new Error('FastMCP sampling function (session.requestSampling) is not available.');
 						}
-						completion = await context.sample(userPrompt, { system: systemPrompt });
+						completion = await session.requestSampling({
+							messages: [{ role: 'user', content: { type: 'text', text: userPrompt } }],
+							systemPrompt: systemPrompt, // systemPrompt will be null here as per logic above
+						});
 					} catch (sampleError) {
 						log.error(`Sampling failed for task ${task.id}: ${sampleError.message}`);
 						failedCount++;
 						continue; // Skip to next task
 					}
 
-					const completionText = completion?.text;
+					const completionText = completion?.content; // Adjusted to common FastMCP response structure
 					if (!completionText) {
 						log.warn(`Skipping task ${task.id}: Received empty completion.`);
 						failedCount++;

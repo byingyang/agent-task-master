@@ -109,22 +109,25 @@ export function registerParsePRDTool(server) {
                 log.info('Initiating client-side LLM sampling via context.sample...');
                 let completion;
                 try {
-                    // Check if context.sample exists *before* calling
-                    if (typeof context.sample !== 'function') {
-                         throw new Error('FastMCP sampling function (context.sample) is not available on the provided context.');
+                    // Check if session.requestSampling exists *before* calling
+                    if (typeof session.requestSampling !== 'function') {
+                         throw new Error('FastMCP sampling function (session.requestSampling) is not available on the provided session.');
                     }
-                    completion = await context.sample(userPrompt, { system: systemPrompt });
+                    completion = await session.requestSampling({
+                        messages: [{ role: 'user', content: { type: 'text', text: userPrompt } }],
+                        systemPrompt: systemPrompt,
+                    });
                 } catch (sampleError) {
-                    log.error(`context.sample failed: ${sampleError.message}`);
+                    log.error(`session.requestSampling failed: ${sampleError.message}`);
                     return createErrorResponse(`Client-side sampling failed: ${sampleError.message}`);
                 }
 
-                const completionText = completion?.text;
+                const completionText = completion?.content; // Adjusted to common FastMCP response structure
                 if (!completionText) {
-                     log.error('Received empty completion from context.sample.');
+                     log.error('Received empty completion from session.requestSampling.');
                      return createErrorResponse('Received empty completion from client LLM.');
                 }
-                log.info('Received completion from client LLM via context.sample.');
+                log.info('Received completion from client LLM via session.requestSampling.');
 
                 // 6. Parse Completion
                 const newTasksData = parseTasksFromCompletion(completionText);

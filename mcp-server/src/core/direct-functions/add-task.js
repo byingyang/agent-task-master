@@ -115,8 +115,8 @@ export async function addTaskDirect(args, log, context = {}) {
 			);
 
 			// Check if sampling is available via context
-			if (!context || typeof context.sample !== 'function') {
-				const errorMessage = 'FastMCP sampling function (context.sample) is not available.';
+			if (!context || !context.session || typeof context.session.requestSampling !== 'function') {
+				const errorMessage = 'FastMCP sampling function (session.requestSampling) is not available.';
 				log.error(errorMessage);
 				disableSilentMode();
 				return {
@@ -142,14 +142,17 @@ export async function addTaskDirect(args, log, context = {}) {
 				tasksData.tasks
 			);
 
-			// Call FastMCP Sampling (using context.sample)
+			// Call FastMCP Sampling (using context.session.requestSampling)
 			let completionText;
 			try {
 				log.info('Initiating FastMCP LLM sampling via client...');
 				// Pass both system and user prompts if the sampling method supports it
-				const completion = await context.sample(userPrompt, { system: systemPrompt });
+				const completion = await context.session.requestSampling({
+					messages: [{ role: 'user', content: { type: 'text', text: userPrompt } }],
+					systemPrompt: systemPrompt,
+				});
 				log.info('Received completion from client LLM.');
-				completionText = completion?.text; // Assuming response structure { text: '...' }
+				completionText = completion?.content; // Adjusted to common FastMCP response structure
 				if (!completionText) {
 					throw new Error('Received empty completion text from client LLM via sampling.');
 				}

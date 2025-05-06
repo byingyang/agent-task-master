@@ -109,18 +109,21 @@ export function registerAnalyzeTool(server) {
 				log.info('Initiating client-side LLM sampling via context.sample for complexity analysis...');
 				let completion;
 				try {
-					if (typeof context.sample !== 'function') {
-						throw new Error('FastMCP sampling function (context.sample) is not available.');
+					if (typeof session.requestSampling !== 'function') {
+						throw new Error('FastMCP sampling function (session.requestSampling) is not available.');
 					}
-					completion = await context.sample(userPrompt, { system: systemPrompt });
+					completion = await session.requestSampling({
+						messages: [{ role: 'user', content: { type: 'text', text: userPrompt } }],
+						systemPrompt: systemPrompt,
+					});
 				} catch (sampleError) {
-					log.error(`context.sample failed: ${sampleError.message}`);
+					log.error(`session.requestSampling failed: ${sampleError.message}`);
 					return createErrorResponse(`Client-side sampling failed: ${sampleError.message}`);
 				}
 
-				const completionText = completion?.text;
+				const completionText = completion?.content;
 				if (!completionText) {
-					log.error('Received empty completion from context.sample.');
+					log.error('Received empty completion from session.requestSampling.');
 					return createErrorResponse('Received empty completion from client LLM.');
 				}
 				log.info(`Received complexity analysis completion from client LLM.`);

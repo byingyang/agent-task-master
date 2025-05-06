@@ -31,7 +31,7 @@ import path from 'path'; // Needed for generateTaskFiles
  * @returns {Promise<Object>} - Result object with success status and data/error information.
  */
 export async function updateTasksDirect(args, log, context = {}) {
-	const { session } = context; // Session is needed for sampling
+	const { session } = context; // Destructure session here
 	const { tasksJsonPath, from, prompt, research } = args;
 
 	// --- Input Validation ---
@@ -64,9 +64,9 @@ export async function updateTasksDirect(args, log, context = {}) {
 		log.error(errorMessage);
 		return { success: false, error: { code: 'INVALID_FROM_ID', message: errorMessage }, fromCache: false };
 	}
-	// Corrected check for context.sample
-	if (!context || typeof context.sample !== 'function') {
-		const errorMessage = 'FastMCP sampling function (context.sample) is not available.';
+	// Corrected check for session.requestSampling
+	if (!context || !context.session || typeof context.session.requestSampling !== 'function') {
+		const errorMessage = 'FastMCP sampling function (session.requestSampling) is not available.';
 		log.error(errorMessage);
 		return {
 			success: false,
@@ -108,14 +108,16 @@ export async function updateTasksDirect(args, log, context = {}) {
 		}
 		log.info('Generated multiple task update prompt for sampling.');
 
-		// 2. Call FastMCP Sampling (Using context.sample)
+		// 2. Call FastMCP Sampling (Using session.requestSampling)
 		let completionText;
 		try {
 			log.info('Initiating FastMCP LLM sampling via client...');
-			// Use context.sample
-			const completion = await context.sample(userPrompt, { system: systemPrompt });
+			const completion = await session.requestSampling({
+				messages: [{ role: 'user', content: { type: 'text', text: userPrompt } }],
+				systemPrompt: systemPrompt,
+			});
 			log.info('Received completion from client LLM.');
-			completionText = completion?.text; // Assuming response structure { text: '...' }
+			completionText = completion?.content; // Adjusted to common FastMCP response structure
 			if (!completionText) {
 				throw new Error('Received empty completion text from client LLM via sampling.');
 			}

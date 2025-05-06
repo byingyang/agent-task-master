@@ -56,8 +56,8 @@ export async function updateSubtaskByIdDirect(args, log, context = {}) {
 		log.error(errorMessage);
 		return { success: false, error: { code: 'INVALID_SUBTASK_ID_FORMAT', message: errorMessage }, fromCache: false };
 	}
-	if (!context || typeof context.sample !== 'function') {
-		const errorMessage = 'FastMCP sampling function (context.sample) is not available.';
+	if (!session || typeof session.requestSampling !== 'function') {
+		const errorMessage = 'FastMCP sampling function (session.requestSampling) is not available.';
 		log.error(errorMessage);
 		return { success: false, error: { code: 'SAMPLING_UNAVAILABLE', message: errorMessage }, fromCache: false };
 	}
@@ -110,13 +110,16 @@ export async function updateSubtaskByIdDirect(args, log, context = {}) {
 		}
 		log.info('Generated subtask update prompt for sampling.');
 
-		// 2. Call FastMCP Sampling (Using context.sample)
+		// 2. Call FastMCP Sampling (Using session.requestSampling)
 		let completionText;
 		try {
 			log.info('Initiating FastMCP LLM sampling via client...');
-			const completion = await context.sample(userPrompt, { system: systemPrompt });
+			const completion = await session.requestSampling({
+				messages: [{ role: 'user', content: { type: 'text', text: userPrompt } }],
+				systemPrompt: systemPrompt,
+			});
 			log.info('Received completion from client LLM.');
-			completionText = completion?.text; // Assuming response structure { text: '...' }
+			completionText = completion?.content; // Adjusted to common FastMCP response structure
 			if (!completionText) {
 				throw new Error('Received empty completion text from client LLM via sampling.');
 			}

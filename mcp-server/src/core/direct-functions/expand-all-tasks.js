@@ -33,9 +33,9 @@ import fs from 'fs';
  * @returns {Promise<{success: boolean, data?: Object, error?: {code: string, message: string}}>}
  */
 export async function expandAllTasksDirect(args, log, context = {}) {
-	// Corrected check for context.sample
-	if (!context || typeof context.sample !== 'function') {
-		const errorMessage = 'FastMCP sampling function (context.sample) is not available.';
+	// Corrected check for session.requestSampling
+	if (!context || !context.session || typeof context.session.requestSampling !== 'function') {
+		const errorMessage = 'FastMCP sampling function (session.requestSampling) is not available.';
 		log.error(errorMessage);
 		return {
 			success: false,
@@ -105,11 +105,13 @@ export async function expandAllTasksDirect(args, log, context = {}) {
 					continue;
 				}
 
-				// 2. Call Sampling (using context.sample)
+				// 2. Call Sampling (using session.requestSampling)
 				log.info(`   Initiating sampling for task ${task.id}...`);
-				// Use context.sample
-				const completion = await context.sample(subtaskPrompt);
-				const completionText = completion?.text; // Assuming response structure { text: '...' }
+				const completion = await session.requestSampling({
+					messages: [{ role: 'user', content: { type: 'text', text: subtaskPrompt } }]
+					// No systemPrompt for subtask generation typically
+				});
+				const completionText = completion?.content; // Adjusted to common FastMCP response structure
 				if (!completionText) {
 					log.warn(`Skipping task ${task.id}: Received empty completion text from sampling.`);
 					continue;
