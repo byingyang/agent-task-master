@@ -92,8 +92,8 @@ export function registerUpdateTaskTool(server) {
 				log.info(`Initiating client-side LLM sampling via context.sample for updating task ${args.id}...`);
 				let completion;
 				try {
-					if (typeof session.requestSampling !== 'function') {
-						throw new Error('FastMCP sampling function (session.requestSampling) is not available.');
+					if (!session || typeof session.requestSampling !== 'function') {
+						throw new Error('FastMCP session object or session.requestSampling function is not available. The connected client may not support this version of server-initiated client-side sampling.');
 					}
 					completion = await session.requestSampling({
 						messages: [{ role: 'user', content: { type: 'text', text: userPrompt } }],
