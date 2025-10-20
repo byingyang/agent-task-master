@@ -1,0 +1,26 @@
+{
+	"name": "@tm/taskmaster-native",
+	"version": "1.0.0",
+	"description": "Native Task Master plugin for Claude Code - No API keys, no MCP, just install and use",
+	"type": "module",
+	"private": true,
+	"keywords": [
+		"claude-code",
+		"plugin",
+		"task-management",
+		"ai",
+		"native",
+		"workflow",
+		"productivity"
+	],
+	"author": {
+		"name": "Eyal Toledano",
+		"url": "https://github.com/eyaltoledano/claude-task-master"
+	},
+	"license": "MIT WITH Commons-Clause",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/eyaltoledano/claude-task-master.git",
+		"directory": "packages/taskmaster-native"
+	}
+}

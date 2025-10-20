@@ -1,0 +1,20 @@
+{
+	"name": "taskmaster-native",
+	"description": "Native Task Master for Claude Code - Zero setup, no API keys, no MCP. AI-powered task management using only Claude Code's native capabilities.",
+	"author": {
+		"name": "Hamster",
+		"url": "https://github.com/eyaltoledano/claude-task-master"
+	},
+	"homepage": "https://github.com/eyaltoledano/claude-task-master#readme",
+	"repository": "https://github.com/eyaltoledano/claude-task-master",
+	"license": "MIT WITH Commons-Clause",
+	"keywords": [
+		"task-management",
+		"ai",
+		"workflow",
+		"native",
+		"no-setup",
+		"productivity",
+		"development"
+	]
+}

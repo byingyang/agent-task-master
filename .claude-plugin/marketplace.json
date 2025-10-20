@@ -6,7 +6,7 @@
 	},
 	"metadata": {
 		"description": "Official marketplace for Taskmaster AI - AI-powered task management for ambitious development",
-		"version": "1.0.0"
+		"version": "2.0.0"
 	},
 	"plugins": [
 		{
@@ -25,6 +25,26 @@
 				"orchestration",
 				"automation",
 				"mcp"
+			],
+			"category": "productivity"
+		},
+		{
+			"name": "taskmaster-native",
+			"source": "./packages/taskmaster-native",
+			"description": "Native Task Master for Claude Code - Zero setup, no API keys, no MCP. Pure Claude Code integration with AI-powered task management.",
+			"author": {
+				"name": "Hamster"
+			},
+			"homepage": "https://github.com/eyaltoledano/claude-task-master",
+			"repository": "https://github.com/eyaltoledano/claude-task-master",
+			"keywords": [
+				"task-management",
+				"ai",
+				"workflow",
+				"native",
+				"no-setup",
+				"productivity",
+				"claude-code"
 			],
 			"category": "productivity"
 		}
