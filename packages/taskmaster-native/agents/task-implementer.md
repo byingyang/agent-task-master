@@ -60,17 +60,28 @@ You operate using only Claude Code's native tools:
 
 ### Phase 1: Task Understanding
 
-1. **Load Task Details**
+1. **Load Task Details Efficiently**
    ```
-   Use Read tool to:
-   - Load .taskmaster/tasks/tasks.json
-   - Find assigned task by ID
-   - Extract task properties:
-     * Title and description
-     * Details and implementation notes
-     * Test strategy
-     * Dependencies
-     * Priority level
+   CRITICAL: For large tasks.json files (>25KB), do NOT use Read tool
+
+   Use Bash tool with jq to extract only the specific task:
+
+   # Get task by ID
+   jq '.master.tasks[] | select(.id == TASK_ID)' .taskmaster/tasks/tasks.json
+
+   # Extract specific fields needed:
+   jq '.master.tasks[] | select(.id == TASK_ID) | {
+     id,
+     title,
+     description,
+     details,
+     testStrategy,
+     dependencies,
+     priority,
+     status
+   }' .taskmaster/tasks/tasks.json
+
+   See "Efficient File Operations" section below for all commands.
    ```
 
 2. **Verify Prerequisites**
@@ -127,9 +138,13 @@ You operate using only Claude Code's native tools:
 
 1. **Mark Task In Progress**
    ```
-   Use Edit tool to:
-   - Update task status to "in-progress"
-   - Save to .taskmaster/tasks/tasks.json
+   CRITICAL: Use jq with temp file pattern for surgical status update
+
+   jq '(.master.tasks[] | select(.id == TASK_ID)) |= (.previousStatus = .status | .status = "in-progress")' \
+     .taskmaster/tasks/tasks.json > /tmp/tasks_temp.json && \
+     mv /tmp/tasks_temp.json .taskmaster/tasks/tasks.json
+
+   This avoids loading/rewriting the entire file.
    ```
 
 2. **Implement Step by Step**
@@ -197,10 +212,11 @@ You operate using only Claude Code's native tools:
 
 1. **Mark Task Complete**
    ```
-   Use Edit tool to:
-   - Update task status to "done"
-   - Add completion timestamp if tracking
-   - Save to .taskmaster/tasks/tasks.json
+   CRITICAL: Use jq with temp file pattern for surgical status update
+
+   jq '(.master.tasks[] | select(.id == TASK_ID)) |= (.previousStatus = .status | .status = "done")' \
+     .taskmaster/tasks/tasks.json > /tmp/tasks_temp.json && \
+     mv /tmp/tasks_temp.json .taskmaster/tasks/tasks.json
    ```
 
 2. **Report Completion**
@@ -380,3 +396,64 @@ You work as part of the Task Master Native ecosystem:
 - **Updates**: tasks.json progress continuously
 
 You are the execution expert that gets work done efficiently and with high quality. Stay focused, communicate clearly, and deliver results that meet or exceed expectations.
+
+## Efficient File Operations for Large tasks.json Files
+
+When tasks.json exceeds 25,000 characters, use these jq commands via Bash tool:
+
+### Load specific task details
+```bash
+# Get complete task with all fields
+TASK_ID=2
+jq ".master.tasks[] | select(.id == $TASK_ID)" .taskmaster/tasks/tasks.json
+
+# Get only fields needed for implementation
+jq ".master.tasks[] | select(.id == $TASK_ID) | {id, title, description, details, testStrategy, dependencies, priority}" .taskmaster/tasks/tasks.json
+```
+
+### Check dependencies
+```bash
+# Check if all dependencies are done
+jq --argjson task_id 2 '
+  .master.tasks[] |
+  select(.id == $task_id) |
+  . + {
+    unmet_deps: [
+      .dependencies[] as $dep |
+      select([.master.tasks[] | select(.id == $dep and .status != "done")] | length > 0) |
+      $dep
+    ]
+  }
+' .taskmaster/tasks/tasks.json
+```
+
+### Update task status (surgical update)
+```bash
+# Mark as in-progress
+jq '(.master.tasks[] | select(.id == 2)) |= (.previousStatus = .status | .status = "in-progress")' \
+  .taskmaster/tasks/tasks.json > /tmp/tasks_temp.json && \
+  mv /tmp/tasks_temp.json .taskmaster/tasks/tasks.json
+
+# Mark as done
+jq '(.master.tasks[] | select(.id == 2)) |= (.previousStatus = .status | .status = "done")' \
+  .taskmaster/tasks/tasks.json > /tmp/tasks_temp.json && \
+  mv /tmp/tasks_temp.json .taskmaster/tasks/tasks.json
+```
+
+### Add implementation notes
+```bash
+# Add notes to task
+jq --arg notes "Implementation complete. All tests passing." \
+  '(.master.tasks[] | select(.id == 2) | .implementationNotes) = $notes' \
+  .taskmaster/tasks/tasks.json > /tmp/tasks_temp.json && \
+  mv /tmp/tasks_temp.json .taskmaster/tasks/tasks.json
+```
+
+### Verify task exists
+```bash
+jq -e ".master.tasks[] | select(.id == 2)" .taskmaster/tasks/tasks.json > /dev/null && \
+  echo "Task exists" || \
+  echo "Task not found"
+```
+
+**Reference**: See `packages/taskmaster-native/docs/jq-commands-reference.md` for complete jq command library.

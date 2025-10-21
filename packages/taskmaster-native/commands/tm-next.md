@@ -7,12 +7,13 @@ Use Claude Code's AI to intelligently recommend the best task to work on next ba
 ## Get Next Task Process
 
 1. **Check initialization**
-   - Use Read tool to verify `.taskmaster/tasks/tasks.json` exists
+   - Use Bash tool to verify `.taskmaster/tasks/tasks.json` exists: `test -f .taskmaster/tasks/tasks.json && echo "exists" || echo "not found"`
    - If not, suggest running `/tm:init` first
 
-2. **Read all tasks**
-   - Use Read tool to load `.taskmaster/tasks/tasks.json`
-   - Parse complete task structure including subtasks
+2. **Read tasks efficiently**
+   - **IMPORTANT**: For large tasks.json files (>25KB), do NOT use Read tool
+   - Use Bash tool with jq to extract only data needed for analysis
+   - See "Efficient File Operations" section below for specific commands
 
 3. **Analyze with Claude**
    Prompt Claude to analyze and recommend:
@@ -110,6 +111,74 @@ The AI considers:
 3. **When Stuck**: Use when unsure what to work on
 4. **Sprint Planning**: Run to identify critical path tasks
 5. **Team Coordination**: Use to avoid dependency conflicts
+
+## Efficient File Operations for Large tasks.json Files
+
+When tasks.json exceeds 25,000 characters, use these jq commands via Bash tool:
+
+### Get all pending tasks
+```bash
+jq '.master.tasks[] | select(.status == "pending")' .taskmaster/tasks/tasks.json
+```
+
+### Get pending tasks with met dependencies
+```bash
+# Two-step approach: Get pending tasks, then check dependencies
+# Step 1: Get all pending tasks with their dependencies
+jq -c '.master.tasks[] | select(.status == "pending") | {id, title, priority, dependencies}' .taskmaster/tasks/tasks.json
+
+# Step 2: For each pending task, verify dependencies are done
+jq --argjson task_id 5 '
+  .master.tasks[] |
+  select(.id == $task_id and .status == "pending") |
+  . + {
+    unmet_deps: [
+      .dependencies[] as $dep |
+      select([.master.tasks[] | select(.id == $dep and .status != "done")] | length > 0) |
+      $dep
+    ]
+  } |
+  select(.unmet_deps | length == 0)
+' .taskmaster/tasks/tasks.json
+```
+
+### Get high-priority pending tasks
+```bash
+jq '.master.tasks[] | select(.status == "pending" and .priority == "high")' .taskmaster/tasks/tasks.json
+```
+
+### Get available tasks (no dependencies or all dependencies met)
+```bash
+# Get tasks with no dependencies
+jq '.master.tasks[] | select(.status == "pending" and (.dependencies | length == 0))' .taskmaster/tasks/tasks.json
+```
+
+### Count in-progress tasks (to warn if too many)
+```bash
+jq '[.master.tasks[] | select(.status == "in-progress")] | length' .taskmaster/tasks/tasks.json
+```
+
+### Get task statistics for recommendation
+```bash
+jq '{
+  total: (.master.tasks | length),
+  done: [.master.tasks[] | select(.status == "done")] | length,
+  in_progress: [.master.tasks[] | select(.status == "in-progress")] | length,
+  pending: [.master.tasks[] | select(.status == "pending")] | length,
+  blocked: [.master.tasks[] | select(.status == "blocked")] | length,
+  high_priority_pending: [.master.tasks[] | select(.status == "pending" and .priority == "high")] | length
+}' .taskmaster/tasks/tasks.json
+```
+
+### Find tasks that block many others (high impact)
+```bash
+# Find how many tasks depend on each task
+jq '[.master.tasks[] | . + {
+  blocks_count: [.. | .dependencies[]? | select(. == .id)] | length
+}] | sort_by(.blocks_count) | reverse | .[:5]' .taskmaster/tasks/tasks.json
+```
+
+**Reference**: See `packages/taskmaster-native/docs/jq-commands-reference.md` for complete jq command library.
 
 ## Examples
 

@@ -10,12 +10,13 @@ Arguments: $ARGUMENTS (optional status filter: pending, in-progress, done, block
 ## List Tasks Process
 
 1. **Check initialization**
-   - Use Read tool to verify `.taskmaster/tasks/tasks.json` exists
+   - Use Bash tool to verify `.taskmaster/tasks/tasks.json` exists: `test -f .taskmaster/tasks/tasks.json && echo "exists" || echo "not found"`
    - If not, suggest running `/tm:init` first
 
-2. **Read tasks**
-   - Use Read tool to load `.taskmaster/tasks/tasks.json`
-   - Parse JSON to get all tasks
+2. **Read tasks efficiently**
+   - **IMPORTANT**: For large tasks.json files (>25KB), do NOT use Read tool
+   - Use Bash tool with jq to extract only needed data
+   - See "Efficient File Operations" section below for specific commands
 
 3. **Apply filters**
    - If arguments provided, filter by status
@@ -51,3 +52,59 @@ Arguments: $ARGUMENTS (optional status filter: pending, in-progress, done, block
    - Suggest `/tm:show <id>` to see task details
    - Suggest `/tm:next` to get next recommended task
    - Suggest `/tm:status <id> <status>` to update task status
+
+## Efficient File Operations for Large tasks.json Files
+
+When tasks.json exceeds 25,000 characters, use these jq commands via Bash tool instead of Read tool:
+
+### Check if file exists
+```bash
+test -f .taskmaster/tasks/tasks.json && echo "exists" || echo "not found"
+```
+
+### List all tasks with basic info
+```bash
+jq -r '.master.tasks[] | "\(.id): \(.title) [\(.status)]"' .taskmaster/tasks/tasks.json
+```
+
+### Filter by status
+```bash
+# Pending tasks
+jq -r '.master.tasks[] | select(.status == "pending") | "\(.id): \(.title) [Priority: \(.priority // "none")]"' .taskmaster/tasks/tasks.json
+
+# In-progress tasks
+jq -r '.master.tasks[] | select(.status == "in-progress") | "\(.id): \(.title) [Priority: \(.priority // "none")]"' .taskmaster/tasks/tasks.json
+
+# Done tasks
+jq -r '.master.tasks[] | select(.status == "done") | "\(.id): \(.title)"' .taskmaster/tasks/tasks.json
+
+# Blocked tasks
+jq -r '.master.tasks[] | select(.status == "blocked") | "\(.id): \(.title) [Blocker: \(.blocker // "not specified")]"' .taskmaster/tasks/tasks.json
+```
+
+### Get status counts for summary
+```bash
+jq '{
+  total: (.master.tasks | length),
+  done: [.master.tasks[] | select(.status == "done")] | length,
+  in_progress: [.master.tasks[] | select(.status == "in-progress")] | length,
+  pending: [.master.tasks[] | select(.status == "pending")] | length,
+  blocked: [.master.tasks[] | select(.status == "blocked")] | length
+}' .taskmaster/tasks/tasks.json
+```
+
+### Filter by priority
+```bash
+# High priority tasks
+jq -r '.master.tasks[] | select(.priority == "high") | "\(.id): \(.title) [\(.status)]"' .taskmaster/tasks/tasks.json
+
+# Combined filter: pending AND high priority
+jq -r '.master.tasks[] | select(.status == "pending" and .priority == "high") | "\(.id): \(.title)"' .taskmaster/tasks/tasks.json
+```
+
+### Show tasks with dependencies
+```bash
+jq -r '.master.tasks[] | select(.dependencies | length > 0) | "\(.id): \(.title) [depends on: \(.dependencies | join(", "))]"' .taskmaster/tasks/tasks.json
+```
+
+**Reference**: See `packages/taskmaster-native/docs/jq-commands-reference.md` for complete jq command library.

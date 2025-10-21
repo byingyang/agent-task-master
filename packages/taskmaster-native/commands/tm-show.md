@@ -14,12 +14,13 @@ Arguments: $ARGUMENTS (required: task ID, e.g., "1" or "1.2")
    - If not, show error and suggest `/tm:list` to see available tasks
 
 2. **Check initialization**
-   - Use Read tool to verify `.taskmaster/tasks/tasks.json` exists
+   - Use Bash tool to verify `.taskmaster/tasks/tasks.json` exists: `test -f .taskmaster/tasks/tasks.json && echo "exists" || echo "not found"`
    - If not, suggest running `/tm:init` first
 
-3. **Read and find task**
-   - Use Read tool to load `.taskmaster/tasks/tasks.json`
-   - Parse JSON and search for task with matching ID
+3. **Read and find task efficiently**
+   - **IMPORTANT**: For large tasks.json files (>25KB), do NOT use Read tool
+   - Use Bash tool with jq to extract only the specific task
+   - See "Efficient File Operations" section below for specific commands
    - Handle nested subtasks (e.g., ID "1.2.1")
 
 4. **Display task details**
@@ -62,3 +63,87 @@ Arguments: $ARGUMENTS (required: task ID, e.g., "1" or "1.2")
 6. **Handle errors gracefully**
    - If task ID not found, list available task IDs
    - Provide helpful suggestions
+
+## Efficient File Operations for Large tasks.json Files
+
+When tasks.json exceeds 25,000 characters, use these jq commands via Bash tool instead of Read tool:
+
+### Check if file exists
+```bash
+test -f .taskmaster/tasks/tasks.json && echo "exists" || echo "not found"
+```
+
+### Get specific task by ID (main tasks)
+```bash
+# Get task with ID 2 (returns complete task object with all fields and subtasks)
+jq '.master.tasks[] | select(.id == 2)' .taskmaster/tasks/tasks.json
+
+# Pretty formatted output for display
+jq '.master.tasks[] | select(.id == 2) | {
+  id,
+  title,
+  status,
+  priority,
+  description,
+  details,
+  testStrategy,
+  dependencies,
+  subtasks: (.subtasks // [])
+}' .taskmaster/tasks/tasks.json
+```
+
+### Get specific subtask by ID
+```bash
+# Get subtask "2.1" from task 2
+jq '.master.tasks[] | select(.id == 2) | .subtasks[] | select(.id == "2.1")' .taskmaster/tasks/tasks.json
+```
+
+### Check if task exists before showing
+```bash
+# Returns empty if task doesn't exist
+jq -e '.master.tasks[] | select(.id == 2)' .taskmaster/tasks/tasks.json > /dev/null && echo "Task exists" || echo "Task not found"
+```
+
+### Get task with formatted text output
+```bash
+jq -r '.master.tasks[] | select(.id == 2) |
+"ID: \(.id)
+Title: \(.title)
+Status: \(.status)
+Priority: \(.priority // "none")
+Description: \(.description)
+
+Details:
+\(.details // "No details provided")
+
+Test Strategy:
+\(.testStrategy // "No test strategy defined")
+
+Dependencies: \(.dependencies | join(", "))
+Subtasks: \((.subtasks // []) | length) subtask(s)"' .taskmaster/tasks/tasks.json
+```
+
+### List all available task IDs (for error messages)
+```bash
+jq -r '.master.tasks[] | .id' .taskmaster/tasks/tasks.json
+```
+
+### Get task with dependency status
+```bash
+# Show task and check which dependencies are met
+jq --argjson task_id 5 '
+  .master.tasks[] |
+  select(.id == $task_id) |
+  . + {
+    dependency_status: [
+      .dependencies[] as $dep |
+      {
+        id: $dep,
+        done: (any(.master.tasks[]; .id == $dep and .status == "done"))
+      }
+    ]
+  }
+' .taskmaster/tasks/tasks.json
+```
+
+**Reference**: See `packages/taskmaster-native/docs/jq-commands-reference.md` for complete jq command library.

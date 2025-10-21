@@ -9,12 +9,13 @@ This is a convenience command that combines `/tm:next` and `/tm:status <id> in-p
 ## Work Flow Process
 
 1. **Check initialization**
-   - Use Read tool to verify `.taskmaster/tasks/tasks.json` exists
+   - Use Bash tool to verify `.taskmaster/tasks/tasks.json` exists: `test -f .taskmaster/tasks/tasks.json && echo "exists" || echo "not found"`
    - If not, suggest running `/tm:init` first
 
-2. **Check for in-progress tasks**
-   - Use Read tool to load tasks
-   - Count tasks with "in-progress" status
+2. **Check for in-progress tasks efficiently**
+   - **IMPORTANT**: For large tasks.json files (>25KB), do NOT use Read tool
+   - Use Bash tool with jq to count in-progress tasks
+   - See "Efficient File Operations" section below for specific commands
    - If too many (>2), show warning:
    ```
    ⚠️  You already have 3 tasks in progress:
@@ -35,7 +36,7 @@ This is a convenience command that combines `/tm:next` and `/tm:status <id> in-p
 
 4. **Update task status**
    - Change recommended task status from "pending" to "in-progress"
-   - Update tasks.json using Write tool
+   - **CRITICAL**: For large files, use jq with temp file pattern (see below)
 
 5. **Display work session start**
    ```
@@ -128,6 +129,82 @@ Perfect for:
 # End of day
 /tm:list in-progress        # See what's in flight
 ```
+
+## Efficient File Operations for Large tasks.json Files
+
+When tasks.json exceeds 25,000 characters, use these jq commands via Bash tool:
+
+### Count in-progress tasks
+```bash
+jq '[.master.tasks[] | select(.status == "in-progress")] | length' .taskmaster/tasks/tasks.json
+```
+
+### Get in-progress tasks (for warning)
+```bash
+jq -r '.master.tasks[] | select(.status == "in-progress") | "\(.id): \(.title)"' .taskmaster/tasks/tasks.json
+```
+
+### Find next available task (combines tm-next logic)
+```bash
+# Get pending high-priority tasks with no dependencies
+jq '.master.tasks[] | select(.status == "pending" and .priority == "high" and (.dependencies | length == 0))' .taskmaster/tasks/tasks.json | head -1
+```
+
+### Mark task as in-progress (surgical update)
+```bash
+TASK_ID=5
+
+# Update status to in-progress
+jq "(.master.tasks[] | select(.id == $TASK_ID)) |= (.previousStatus = .status | .status = \"in-progress\")" \
+  .taskmaster/tasks/tasks.json > /tmp/tasks_temp.json && \
+  mv /tmp/tasks_temp.json .taskmaster/tasks/tasks.json
+```
+
+### Complete workflow for /tm:work
+```bash
+# 1. Check if too many in-progress
+IN_PROGRESS_COUNT=$(jq '[.master.tasks[] | select(.status == "in-progress")] | length' .taskmaster/tasks/tasks.json)
+
+if [ "$IN_PROGRESS_COUNT" -gt 2 ]; then
+  echo "⚠️  Warning: You have $IN_PROGRESS_COUNT tasks in progress"
+  jq -r '.master.tasks[] | select(.status == "in-progress") | "  - Task #\(.id): \(.title)"' .taskmaster/tasks/tasks.json
+  echo ""
+  echo "Consider completing some before starting new work."
+  exit 0
+fi
+
+# 2. Get next task (example: first pending high-priority task)
+NEXT_TASK=$(jq '.master.tasks[] | select(.status == "pending" and .priority == "high") | {id, title}' .taskmaster/tasks/tasks.json | head -1)
+
+if [ -z "$NEXT_TASK" ]; then
+  echo "No high-priority tasks available. Checking all pending tasks..."
+  NEXT_TASK=$(jq '.master.tasks[] | select(.status == "pending")' .taskmaster/tasks/tasks.json | head -1)
+fi
+
+# 3. Extract task ID
+TASK_ID=$(echo "$NEXT_TASK" | jq -r '.id')
+
+# 4. Mark as in-progress
+jq "(.master.tasks[] | select(.id == $TASK_ID)) |= (.previousStatus = .status | .status = \"in-progress\")" \
+  .taskmaster/tasks/tasks.json > /tmp/tasks_temp.json && \
+  mv /tmp/tasks_temp.json .taskmaster/tasks/tasks.json
+
+# 5. Display work session info
+echo "🚀 Starting Work Session"
+echo ""
+jq -r ".master.tasks[] | select(.id == $TASK_ID) |
+\"Task #\(.id): \(.title)
+Priority: \(.priority)
+Status: ⏳ Pending → 🚧 In Progress
+
+Description:
+\(.description)
+
+Details:
+\(.details // \"No details provided\")\"" .taskmaster/tasks/tasks.json
+```
+
+**Reference**: See `packages/taskmaster-native/docs/jq-commands-reference.md` for complete jq command library.
 
 ## Tips
 

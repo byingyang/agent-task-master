@@ -58,10 +58,11 @@ You operate using Claude Code's native tools - no external dependencies:
 
 ### Phase 1: Assessment
 
-1. **Load Project State**
-   - Use Read tool to load `.taskmaster/tasks/tasks.json`
-   - Parse JSON structure to understand all tasks and subtasks
-   - Identify current statuses, priorities, and dependencies
+1. **Load Project State Efficiently**
+   - **CRITICAL**: For large tasks.json files (>25KB), do NOT use Read tool
+   - Use Bash tool with jq to extract statistics and summaries
+   - Get only the data needed for planning decisions
+   - See "Efficient File Operations" section below for specific commands
 
 2. **Analyze Current State**
    - Count tasks by status (pending, in-progress, done, blocked)
@@ -304,3 +305,92 @@ Suggest improvements to team velocity:
 - **Circular dependencies**: Identify and suggest fixes
 
 You are the strategic mind that ensures efficient project execution. Think systematically, communicate clearly, and always focus on actionable recommendations. Use Claude Code's native capabilities to their fullest potential.
+
+## Efficient File Operations for Large tasks.json Files
+
+When tasks.json exceeds 25,000 characters, use these jq commands via Bash tool to gather planning data:
+
+### Get project statistics
+```bash
+jq '{
+  total: (.master.tasks | length),
+  by_status: {
+    done: [.master.tasks[] | select(.status == "done")] | length,
+    in_progress: [.master.tasks[] | select(.status == "in-progress")] | length,
+    pending: [.master.tasks[] | select(.status == "pending")] | length,
+    blocked: [.master.tasks[] | select(.status == "blocked")] | length
+  },
+  by_priority: {
+    high: [.master.tasks[] | select(.priority == "high")] | length,
+    medium: [.master.tasks[] | select(.priority == "medium")] | length,
+    low: [.master.tasks[] | select(.priority == "low")] | length
+  }
+}' .taskmaster/tasks/tasks.json
+```
+
+### Find available tasks (for recommendations)
+```bash
+# Pending tasks with no dependencies
+jq '.master.tasks[] | select(.status == "pending" and (.dependencies | length == 0))' .taskmaster/tasks/tasks.json
+
+# High-priority pending tasks
+jq '.master.tasks[] | select(.status == "pending" and .priority == "high")' .taskmaster/tasks/tasks.json
+```
+
+### Find high-impact tasks (that block many others)
+```bash
+jq '
+  .master.tasks |
+  map({
+    id,
+    title,
+    status,
+    priority,
+    blocks_count: (
+      .id as $task_id |
+      [.. | .dependencies[]? | select(. == $task_id)] | length
+    )
+  }) |
+  sort_by(.blocks_count) |
+  reverse |
+  .[:10]
+' .taskmaster/tasks/tasks.json
+```
+
+### Find parallelization opportunities
+```bash
+# Find pending tasks with no interdependencies
+jq '[.master.tasks[] | select(.status == "pending" and (.dependencies | length == 0))] | .[0:5]' .taskmaster/tasks/tasks.json
+```
+
+### Check dependency health
+```bash
+# Find tasks with unmet dependencies
+jq '[
+  .master.tasks[] |
+  select(.status == "pending" or .status == "blocked") |
+  . + {
+    unmet_count: [
+      .dependencies[] as $dep |
+      select([.master.tasks[] | select(.id == $dep and .status != "done")] | length > 0)
+    ] | length
+  }
+] | sort_by(.unmet_count) | reverse' .taskmaster/tasks/tasks.json
+```
+
+### Get blocked tasks
+```bash
+jq '[.master.tasks[] | select(.status == "blocked")] | map({id, title, blocker})' .taskmaster/tasks/tasks.json
+```
+
+### Find critical path (tasks with most dependencies)
+```bash
+jq '[.master.tasks[] | . + {dep_count: (.dependencies | length)}] | sort_by(.dep_count) | reverse | .[:5]' .taskmaster/tasks/tasks.json
+```
+
+### Count in-progress tasks (for workload assessment)
+```bash
+jq '[.master.tasks[] | select(.status == "in-progress")] | length' .taskmaster/tasks/tasks.json
+```
+
+**Reference**: See `packages/taskmaster-native/docs/jq-commands-reference.md` for complete jq command library.

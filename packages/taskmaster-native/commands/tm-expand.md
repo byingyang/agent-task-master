@@ -14,13 +14,14 @@ Arguments: $ARGUMENTS (required: task ID to expand, e.g., "1" or "2")
    - If not provided, suggest `/tm:list` to see available tasks
 
 2. **Check initialization**
-   - Use Read tool to verify `.taskmaster/tasks/tasks.json` exists
+   - Use Bash tool to verify `.taskmaster/tasks/tasks.json` exists: `test -f .taskmaster/tasks/tasks.json && echo "exists" || echo "not found"`
    - If not, suggest running `/tm:init` first
 
-3. **Read and find task**
-   - Use Read tool to load `.taskmaster/tasks/tasks.json`
-   - Parse JSON and locate task with matching ID
+3. **Read and find task efficiently**
+   - **IMPORTANT**: For large tasks.json files (>25KB), do NOT use Read tool
+   - Use Bash tool with jq to find specific task
    - If task not found, show error with available IDs
+   - See "Efficient File Operations" section below for specific commands
 
 4. **Check if task already has subtasks**
    - If task already has subtasks, ask if user wants to:
@@ -77,7 +78,7 @@ Arguments: $ARGUMENTS (required: task ID to expand, e.g., "1" or "2")
    - Set dependencies appropriately (each subtask may depend on previous)
 
 8. **Write updated tasks**
-   - Use Write tool to save modified tasks.json
+   - **CRITICAL**: For large files, use jq with temp file pattern (see below)
    - Preserve all other task data
 
 9. **Confirm expansion**
@@ -124,6 +125,64 @@ Expand a task when:
 # Will prompt Claude to analyze and break down the task
 # Creates subtasks 1.1, 1.2, 1.3, etc.
 ```
+
+## Efficient File Operations for Large tasks.json Files
+
+When tasks.json exceeds 25,000 characters, use these jq commands via Bash tool:
+
+### Get parent task to expand
+```bash
+jq '.master.tasks[] | select(.id == 5)' .taskmaster/tasks/tasks.json
+```
+
+### Check if task already has subtasks
+```bash
+jq '.master.tasks[] | select(.id == 5) | {id, title, has_subtasks: (.subtasks | length > 0), subtask_count: (.subtasks | length)}' .taskmaster/tasks/tasks.json
+```
+
+### Add subtasks to task (surgical update)
+```bash
+# After Claude generates subtasks as JSON array, add them to the parent task
+TASK_ID=5
+
+# Example: Add subtasks array
+jq --argjson subtasks '[
+  {
+    "id": "5.1",
+    "title": "First subtask",
+    "description": "Description",
+    "status": "pending",
+    "priority": "high",
+    "dependencies": []
+  },
+  {
+    "id": "5.2",
+    "title": "Second subtask",
+    "description": "Description",
+    "status": "pending",
+    "priority": "high",
+    "dependencies": ["5.1"]
+  }
+]' "(.master.tasks[] | select(.id == $TASK_ID) | .subtasks) = \$subtasks" \
+  .taskmaster/tasks/tasks.json > /tmp/tasks_temp.json && \
+  mv /tmp/tasks_temp.json .taskmaster/tasks/tasks.json
+```
+
+### Append subtasks to existing array
+```bash
+# If task already has subtasks, append to them
+jq --argjson new_subtasks '[{
+  "id": "5.3",
+  "title": "Third subtask",
+  "description": "Description",
+  "status": "pending",
+  "dependencies": []
+}]' "(.master.tasks[] | select(.id == 5) | .subtasks) += \$new_subtasks" \
+  .taskmaster/tasks/tasks.json > /tmp/tasks_temp.json && \
+  mv /tmp/tasks_temp.json .taskmaster/tasks/tasks.json
+```
+
+**Reference**: See `packages/taskmaster-native/docs/jq-commands-reference.md` for complete jq command library.
 
 ## Tips
 

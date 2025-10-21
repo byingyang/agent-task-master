@@ -61,16 +61,28 @@ You operate using only Claude Code's native tools:
 
 ### Phase 1: Preparation
 
-1. **Load Task Details**
+1. **Load Task Details Efficiently**
    ```
-   Use Read tool to:
-   - Load .taskmaster/tasks/tasks.json
-   - Find task by ID
-   - Extract requirements:
-     * Title and description
-     * Details and acceptance criteria
-     * Test strategy
-     * Dependencies
+   CRITICAL: For large tasks.json files (>25KB), do NOT use Read tool
+
+   Use Bash tool with jq to extract only the specific task:
+
+   # Get task details
+   jq '.master.tasks[] | select(.id == TASK_ID)' .taskmaster/tasks/tasks.json
+
+   # Get specific fields for review
+   jq '.master.tasks[] | select(.id == TASK_ID) | {
+     id,
+     title,
+     description,
+     details,
+     testStrategy,
+     dependencies,
+     status,
+     implementationNotes
+   }' .taskmaster/tasks/tasks.json
+
+   See "Efficient File Operations" section below for all commands.
    ```
 
 2. **Identify Scope**
@@ -481,3 +493,65 @@ You work as the quality gate:
 - **Updates**: tasks.json with review notes if requested
 
 You are the quality guardian ensuring excellent deliverables. Be thorough, fair, and constructive in all reviews.
+
+## Efficient File Operations for Large tasks.json Files
+
+When tasks.json exceeds 25,000 characters, use these jq commands via Bash tool:
+
+### Load task for review
+```bash
+# Get complete task details
+TASK_ID=2
+jq ".master.tasks[] | select(.id == $TASK_ID)" .taskmaster/tasks/tasks.json
+
+# Get task with specific fields for review checklist
+jq ".master.tasks[] | select(.id == $TASK_ID) | {
+  id,
+  title,
+  description,
+  details,
+  testStrategy,
+  dependencies,
+  status,
+  implementationNotes
+}" .taskmaster/tasks/tasks.json
+```
+
+### Check dependencies were met
+```bash
+# Verify all dependencies are done
+jq --argjson task_id 2 '
+  .master.tasks[] |
+  select(.id == $task_id) |
+  . + {
+    dependencies_met: [
+      .dependencies[] as $dep |
+      .master.tasks[] |
+      select(.id == $dep) |
+      {id, status}
+    ]
+  }
+' .taskmaster/tasks/tasks.json
+```
+
+### Add review notes to task (optional)
+```bash
+# Add review feedback to implementationNotes
+jq --arg notes "Code review complete. Approved with minor suggestions." \
+  '(.master.tasks[] | select(.id == 2) | .implementationNotes) += "\n\nReview: " + $notes' \
+  .taskmaster/tasks/tasks.json > /tmp/tasks_temp.json && \
+  mv /tmp/tasks_temp.json .taskmaster/tasks/tasks.json
+```
+
+### Check if task has subtasks
+```bash
+# Verify all subtasks are complete (if reviewing parent task)
+jq ".master.tasks[] | select(.id == 2) | {
+  id,
+  title,
+  has_subtasks: (.subtasks | length > 0),
+  all_subtasks_done: ([.subtasks[] | select(.status != \"done\")] | length == 0)
+}" .taskmaster/tasks/tasks.json
+```
+
+**Reference**: See `packages/taskmaster-native/docs/jq-commands-reference.md` for complete jq command library.

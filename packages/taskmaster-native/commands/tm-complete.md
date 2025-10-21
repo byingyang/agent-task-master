@@ -18,14 +18,15 @@ Arguments: $ARGUMENTS (required: task ID to mark as complete)
    - If multiple or none, ask user to specify
 
 2. **Check initialization**
-   - Use Read tool to verify `.taskmaster/tasks/tasks.json` exists
+   - Use Bash tool to verify `.taskmaster/tasks/tasks.json` exists: `test -f .taskmaster/tasks/tasks.json && echo "exists" || echo "not found"`
    - If not, suggest running `/tm:init` first
 
-3. **Read and validate task**
-   - Use Read tool to load tasks
-   - Find task with matching ID
+3. **Read and validate task efficiently**
+   - **IMPORTANT**: For large tasks.json files (>25KB), do NOT use Read tool
+   - Use Bash tool with jq to find and validate task
    - Verify task exists
    - Check current status
+   - See "Efficient File Operations" section below for specific commands
 
 4. **Completion checklist** (interactive)
    Ask user to confirm:
@@ -46,8 +47,12 @@ Arguments: $ARGUMENTS (required: task ID to mark as complete)
 
 5. **Update task status**
    - Change status from current → "done"
-   - Store previous status in `previousStatus` field
-   - Update tasks.json using Write tool
+   - **CRITICAL**: For large files, use jq with temp file pattern (see below)
+   - Store previousStatus before updating
+   - Update to "done" status
+   - Save atomically
+
+   **IMPORTANT**: For large files, use jq modification pattern instead of Edit/Write tools
 
 6. **Check for newly unblocked tasks**
    - Scan all tasks for dependencies on completed task
@@ -162,6 +167,78 @@ Arguments: $ARGUMENTS (required: task ID to mark as complete)
 - `/tm:complete <id>` - Mark specific task done
 - `/tm:complete` - Mark current task done (if only one in progress)
 - `/tm:complete <id> skip-next` - Don't show next recommendation
+
+## Efficient File Operations for Large tasks.json Files
+
+When tasks.json exceeds 25,000 characters, use these jq commands via Bash tool:
+
+### Check task status before completing
+```bash
+jq '.master.tasks[] | select(.id == 2) | {id, title, status}' .taskmaster/tasks/tasks.json
+```
+
+### Mark task as complete (SURGICAL UPDATE)
+```bash
+# Update task status to done with previousStatus tracking
+jq '(.master.tasks[] | select(.id == 2)) |= (.previousStatus = .status | .status = "done")' \
+  .taskmaster/tasks/tasks.json > /tmp/tasks_temp.json && \
+  mv /tmp/tasks_temp.json .taskmaster/tasks/tasks.json
+```
+
+### Check parent task completion (if this is a subtask)
+```bash
+# Get parent task and check if all subtasks are done
+jq '.master.tasks[] | select(.id == 2) | {
+  id,
+  title,
+  all_subtasks_done: ([.subtasks[] | select(.status != "done")] | length == 0)
+}' .taskmaster/tasks/tasks.json
+```
+
+### Find newly unblocked tasks
+```bash
+# Find tasks that depend on this task and are now unblocked
+jq --argjson completed_id 2 '
+  [.master.tasks[] |
+   select(.status == "pending" or .status == "blocked") |
+   select(.dependencies | contains([$completed_id])) |
+   . + {
+     all_deps_met: [
+       .dependencies[] as $dep |
+       select([.master.tasks[] | select(.id == $dep and .status != "done")] | length > 0)
+     ] | length == 0
+   }] |
+  map(select(.all_deps_met)) |
+  map({id, title, priority})
+' .taskmaster/tasks/tasks.json
+```
+
+### Complete workflow with celebratory output
+```bash
+TASK_ID=2
+
+# 1. Get task info
+TASK_INFO=$(jq -r ".master.tasks[] | select(.id == $TASK_ID) | \"\(.title)\"" .taskmaster/tasks/tasks.json)
+
+# 2. Mark as done
+jq "(.master.tasks[] | select(.id == $TASK_ID)) |= (.previousStatus = .status | .status = \"done\")" \
+  .taskmaster/tasks/tasks.json > /tmp/tasks_temp.json && \
+  mv /tmp/tasks_temp.json .taskmaster/tasks/tasks.json
+
+# 3. Get updated stats
+echo "✅ Task Completed!"
+echo ""
+echo "Task #$TASK_ID: $TASK_INFO"
+echo ""
+jq -r '{
+  total: (.master.tasks | length),
+  done: [.master.tasks[] | select(.status == "done")] | length,
+  in_progress: [.master.tasks[] | select(.status == "in-progress")] | length,
+  pending: [.master.tasks[] | select(.status == "pending")] | length
+} | "Progress: \(.done)/\(.total) tasks complete (\((.done / .total * 100) | floor)%)"' .taskmaster/tasks/tasks.json
+```
+
+**Reference**: See `packages/taskmaster-native/docs/jq-commands-reference.md` for complete jq command library.
 
 ## Tips
 
